@@ -182,7 +182,7 @@ int nuke(const char* media, uint64_t size)
    }
    endTime = time(NULL);
 
-   printf("\n");
+   putchar('\n');
    close(fd);
    return 0;
 }
