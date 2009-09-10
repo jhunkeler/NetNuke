@@ -21,9 +21,10 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
-#include <stdbool.h>
 #include <string.h>
+#include <stdbool.h>
 #include <unistd.h>
+#include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <err.h>
@@ -41,12 +42,12 @@
 
 /* Global variables */
 static int64_t error;
-static bool udef_verbose = false;
-static int8_t udef_wmode = 0; /* O_SYNC is default */
-static int16_t udef_nukelevel = 1; /* Static patterns is default */
-static int16_t udef_passes = 1;
-static bool udef_testmode = true; /* Test mode should always be enabled by default. */
-static int32_t udef_blocksize = 512; /* 1 block = 512 bytes*/
+bool udef_verbose = false;
+int8_t udef_wmode = 0; /* O_SYNC is default */
+int32_t udef_nukelevel = 1; /* Static patterns is default */
+int32_t udef_passes = 2;
+bool udef_testmode = true; /* Test mode should always be enabled by default. */
+int32_t udef_blocksize = 512; /* 1 block = 512 bytes*/
 
 /* List of media types that we can nuke */
 #ifdef __FreeBSD__
@@ -225,7 +226,7 @@ void echoList()
        * Otherwise this loop would never end. */
       if((int64_t)size > 0L)
       {
-         strncpy(mediaShort, &media[5], strlen(&media[5]));
+         strncpy(mediaShort, &media[5], strlen(media));
          printf("%s: %jd\n", mediaShort , (intmax_t)size);
          mediaFound++;
       }
@@ -325,13 +326,59 @@ void version(const char* cmd)
    printf("That source code (from libutil) is licensed under the BSD software license.\n\n");
 }
 
-#define ARGMATCH(arg) strncmp(argv[tok], arg, strlen(arg)+1) == 0
-#define ARGFILTER() \
-   if(argv[tok] == NULL) fprintf(stderr, "%s was null.\n", __LINE__)
+#define ARGMATCH(arg) strncmp(argv[tok], arg, strlen(arg)) == 0 
+#define ARGNULL(arg) if(argv[tok arg] == NULL) exit(1);
 #define ARGVALINT(ref) tok++; ref = atoi(argv[tok])
+#define ARGVALSTR(ref) tok++; ref = argv[tok];
+
+#define NOZERO 0
+#define NONEGATIVE 2
+#define NEEDNUM 4
+#define NEEDSTR 8
+int filterArg(const char* key, char* value, short flags)
+{
+   int test;
+   int length = strlen(value);
+ 
+   if((flags & NEEDNUM) > 0)
+   {
+      for(test = 0; test < length; test++)
+      {
+         if(!isdigit(value[test]))
+         {
+            printf("argument %s did not receive an integer\n", key);
+            exit(1);
+         }
+      }
+   }
+
+   if((flags & NONEGATIVE) > 0)
+   {
+      if((atoi(value) < 0))
+      {
+         printf("argument %s received a negative number\n", key);
+         exit(1);
+      }
+   }
+
+   if((flags & NOZERO) > 0)
+   {
+      if((atoi(value) == 0))
+      {
+         printf("argument %s received zero.  not allowed.\n", key);
+         exit(1);
+      }
+   }
+
+
+   return 0;
+}
+
 int main(int argc, char* argv[])
 {
    int tok = 0;
+
+   /* Static arguments that must happen first */
    for(tok = 0; tok < argc; tok++)
    {
       if(ARGMATCH("--help") || ARGMATCH("-h"))
@@ -349,30 +396,73 @@ int main(int argc, char* argv[])
          udef_verbose = true;
       }
 
+   }
+
+   /* Dynamic arguments come second */
+   for(tok = 0; tok < argc; tok++)
+   {
+
       if(ARGMATCH("--write-mode") || ARGMATCH("-w"))
       {
-         ARGVALINT(udef_wmode);
+         ARGNULL(+1);
+         if(filterArg(argv[tok], argv[tok+1], NONEGATIVE|NEEDNUM) == 0)
+         {
+            ARGVALINT(udef_wmode);            
+         }
+
          if(udef_verbose)
             printf("write mode is %d\n", udef_wmode);
       }
       if(ARGMATCH("--nuke-level") || ARGMATCH("-n"))
       {
-         ARGFILTER();
-         ARGVALINT(udef_nukelevel);
+         ARGNULL(+1);
+         if(filterArg(argv[tok-1], argv[tok+1], NONEGATIVE|NEEDNUM) == 0)
+         {
+            ARGVALINT(udef_nukelevel);
+         }
+
          if(udef_verbose)
             printf("nuke level is %d\n", udef_nukelevel);
+
       }
       if(ARGMATCH("--passes") || ARGMATCH("-p"))
       {
+         ARGNULL(+1);
+         if(filterArg(argv[tok-1], argv[tok+1], NEEDNUM) == 0)
+         {
+            ARGVALINT(udef_passes);
+            if(udef_passes < 1)
+               udef_passes = 1;
+         }
+
+         if(udef_verbose)
+            printf("passes is %u\n", udef_passes);
 
       }
       if(ARGMATCH("--disable-test"))
       {
+         udef_testmode = false;
 
+         if(udef_verbose)
+            printf("testmode disabled\n");
       }
       if(ARGMATCH("--block-size") || ARGMATCH("-b"))
       {
+         ARGNULL(+1);
+         if(filterArg(argv[tok-1], argv[tok+1], NONEGATIVE|NOZERO|NEEDNUM) == 0)
+         {
+            ARGVALINT(udef_blocksize);
+         }
 
+         if(udef_verbose)
+            printf("block size is %d\n", udef_blocksize);
+      }
+
+      if(argv[tok+1] == NULL)
+      {
+         //usage(argv[0]);
+         //exit(1);
+         //break;
       }
    }
 

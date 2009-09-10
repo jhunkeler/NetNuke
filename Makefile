@@ -2,5 +2,5 @@ CFLAGS=-Wall -pipe -O2 -funroll-loops
 OUTPUT=netnuke
 
 all:
-	gcc -o ${OUTPUT} -lutil ${CFLAGS} netnuke.c
+	cc -std=c99 -o ${OUTPUT} -lutil ${CFLAGS} netnuke.c
 
