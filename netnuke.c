@@ -21,6 +21,7 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <stdbool.h>
 #include <string.h>
 #include <unistd.h>
 #include <errno.h>
@@ -36,8 +37,17 @@
    #include <linux/fs.h>
 #endif
 
+#include "netnuke.h"
+
 /* Global variables */
-int32_t error;
+static int64_t error;
+static bool udef_verbose = false;
+static int8_t udef_wmode = 0; /* O_SYNC is default */
+static int16_t udef_nukelevel = 1; /* Static patterns is default */
+static int16_t udef_passes = 1;
+static bool udef_testmode = true; /* Test mode should always be enabled by default. */
+static int32_t udef_blocksize = 512; /* 1 block = 512 bytes*/
+
 /* List of media types that we can nuke */
 #ifdef __FreeBSD__
    const char* mediaList[17] = {
@@ -279,8 +289,92 @@ uint64_t getSize(const char* media)
    return size;
 }
 
+void usage(const char* cmd)
+{
+   putchar('\n');
+   printf("usage: %s\n", cmd);
+   printf("--help            -h       This message\n");
+   printf("--write-mode s    -w  s    Valid values:\n\
+                              0: Synchronous (default)\n\
+                              1: Asynchronous\n");
+   printf("--nuke-level n    -nl n    Varying levels of destruction:\n\
+                              0: Zero out (quick wipe)\n\
+                              1: Static patterns (0xA, 0xB, ...)\n\
+                              2: Fast random (single random buffer across media)\n\
+                              3: Slow random (generate random buffer every 128 blocks)\n\
+                              4: Ultra-slow re-writing method\n");
+   printf("--passes n        -p  n    Number of wipes to perform on a single device\n");
+   printf("--disable-test             Disables test-mode, and allows write operations\n");
+   printf("--block-size n    -b  n    Blocks at once\n");
+   printf("--verbose         -v\n");
+   printf("--version         -V\n");
+   putchar('\n');
+}
+
+void version(const char* cmd)
+{
+    printf("NetNuke v%d.%d-%s\n \
+           Copyright (C) 2009  %s <%s>\n \
+           This software is licensed under %sv%d\n\n%s\n\n",
+                NETNUKE_VERSION_MAJOR, NETNUKE_VERSION_MINOR,
+                NETNUKE_VERSION_REVISION, NETNUKE_AUTHOR,
+                NETNUKE_AUTHOR_EMAIL, NETNUKE_LICENSE_TYPE,
+                NETNUKE_LICENSE_VERSION, NETNUKE_LICENSE_PREAMBLE
+                );
+   printf("NOTE: humanize_number was ported from NetBSD to function on Linux.\n");
+   printf("That source code (from libutil) is licensed under the BSD software license.\n\n");
+}
+
+#define ARGMATCH(arg) strncmp(argv[tok], arg, strlen(arg)+1) == 0
+#define ARGFILTER() \
+   if(argv[tok] == NULL) fprintf(stderr, "%s was null.\n", __LINE__)
+#define ARGVALINT(ref) tok++; ref = atoi(argv[tok])
 int main(int argc, char* argv[])
 {
+   int tok = 0;
+   for(tok = 0; tok < argc; tok++)
+   {
+      if(ARGMATCH("--help") || ARGMATCH("-h"))
+      {
+         usage(argv[0]);
+         exit(0);
+      }
+      if(ARGMATCH("--version") || ARGMATCH("-V"))
+      {
+         version(argv[0]);
+         exit(0);
+      }
+      if(ARGMATCH("--verbose") || ARGMATCH("-v"))
+      {
+         udef_verbose = true;
+      }
+
+      if(ARGMATCH("--write-mode") || ARGMATCH("-w"))
+      {
+         ARGVALINT(udef_wmode);
+         if(udef_verbose)
+            printf("write mode is %d\n", udef_wmode);
+      }
+      if(ARGMATCH("--nuke-level") || ARGMATCH("-n"))
+      {
+         ARGFILTER();
+         ARGVALINT(udef_nukelevel);
+         if(udef_verbose)
+            printf("nuke level is %d\n", udef_nukelevel);
+      }
+      if(ARGMATCH("--passes") || ARGMATCH("-p"))
+      {
+
+      }
+      if(ARGMATCH("--disable-test"))
+      {
+
+      }
+      if(ARGMATCH("--block-size") || ARGMATCH("-b"))
+      {
+
+      }
+   }
 
    int i = 0; 
    int mt = 0;
