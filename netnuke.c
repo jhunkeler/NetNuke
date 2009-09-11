@@ -534,7 +534,7 @@ int main(int argc, char* argv[])
 		printf("Test mode: %s\n", udef_testmode ? "ENABLED" : "DISABLED");
 		printf("Block size: %d\n", udef_blocksize);
 		printf("Wipe method: %s\n", nlstr);
-		printf("Pass #: %u\n", udef_passes);
+		printf("Num. of passes: %u\n", udef_passes);
 		printf("Write mode: %cSYNC\n", udef_wmode ? 'A' : 0);
 	}
    putchar('\n');
