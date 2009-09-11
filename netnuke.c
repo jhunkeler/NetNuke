@@ -131,16 +131,16 @@ void fillRandom(char buffer[], uint64_t length)
 
 }
 
-int nuke(const char* media, uint64_t size)
+int nuke(char* media, uint64_t size)
 {
    /* test with 1G worth of data */
-   size = (1024 * 1024) * 1000;
+   //size = (1024 * 1024) * 1000;
 
    char mediaSize[BUFSIZ];
    char writeSize[BUFSIZ];
    char writePerSecond[BUFSIZ];
    int32_t pass;
-   uint64_t byteSize = 1024;
+   uint64_t byteSize = udef_blocksize;
    uint64_t times, block;
    char  wTable[byteSize];
    uint32_t startTime, currentTime, endTime; 
@@ -149,6 +149,9 @@ int nuke(const char* media, uint64_t size)
    /* Set the IO mode */
    int O_UFLAG = udef_wmode ? O_ASYNC : O_SYNC;
 	//char* testflag = udef_testmode ? "/dev/null" : media;
+
+	if(udef_testmode == true)
+		sprintf(media, "%s", "/dev/null");
 
    int fd = open(media, O_WRONLY | O_UFLAG);
    if(!fd)
@@ -162,9 +165,6 @@ int nuke(const char* media, uint64_t size)
       HN_AUTOSCALE, HN_B | HN_NOSPACE | HN_DECIMAL);
    printf("Wiping %s: %ju (%s)\n", media, (intmax_t)size, mediaSize);
    
-   /* Determine how many writes to perform, and at what byte size */
-   times = size / byteSize;
-   
    /* Dump random garbage to the write table */
    if(udef_nukelevel == NUKE_RANDOM_SLOW || udef_nukelevel == NUKE_RANDOM_FAST)
 	   fillRandom(wTable, byteSize);
@@ -173,9 +173,12 @@ int nuke(const char* media, uint64_t size)
    else
 	   staticPattern(wTable, byteSize);
 
-
+	/* Begin write passes */
    for( pass = 1; pass <= udef_passes ; pass++ )
    {
+		/* Determine how many writes to perform, and at what byte size */
+		times = size / byteSize;
+
 	   startTime = time(NULL);
 	   for( block = 0 ; block <= times ; block++)
 	   {
@@ -257,9 +260,6 @@ void echoList()
 #else
       sprintf(media, "/dev/%s%c", mediaList[mt], 'a' + i);
 #endif
-
-		if(udef_testmode)
-			sprintf(media, "/dev/null");
 
       /* Set media size */
       size = getSize(media);
@@ -446,9 +446,6 @@ int main(int argc, char* argv[])
          {
             ARGVALINT(udef_wmode);
          }
-
-         if(udef_verbose)
-				printf("Write mode: %cSYNC\n", udef_wmode ? 'A' : 0);
       }
       if(ARGMATCH("--nuke-level") || ARGMATCH("-n"))
       {
@@ -465,31 +462,6 @@ int main(int argc, char* argv[])
 				printf("*** Rewrite mode is not implemented, using default.\n");
 				udef_nukelevel = NUKE_PATTERN;
 			}
-        
-         if(udef_verbose)
-			{
-				char* nlstr = {0};
-				switch(udef_nukelevel)
-				{
-					case NUKE_ZERO:
-						nlstr = "Zeroing";
-						break;
-					case NUKE_PATTERN:
-						nlstr = "Pattern";
-						break;
-					case NUKE_RANDOM_SLOW:
-						nlstr = "Slow Random";
-						break;
-					case NUKE_RANDOM_FAST:
-						nlstr = "Fast Random";
-						break;
-					default:
-						nlstr = "Unknown";
-						break;
-				}
-
-				printf("Wipe method: %s\n", nlstr);
-			}
       }
       if(ARGMATCH("--passes") || ARGMATCH("-p"))
       {
@@ -500,17 +472,10 @@ int main(int argc, char* argv[])
             if(udef_passes < 1)
                udef_passes = 1;
          }
-
-         if(udef_verbose)
-				printf("Pass #: %u\n", udef_passes);
-
       }
       if(ARGMATCH("--disable-test"))
       {
          udef_testmode = false;
-
-         if(udef_verbose)
-            printf("testmode disabled\n");
       }
       if(ARGMATCH("--block-size") || ARGMATCH("-b"))
       {
@@ -518,10 +483,7 @@ int main(int argc, char* argv[])
          if(filterArg(argv[tok-1], argv[tok+1], NONEGATIVE|NOZERO|NEEDNUM) == 0)
          {
             ARGVALINT(udef_blocksize);
-         }
-
-         if(udef_verbose)
-				printf("Block size: %d\n", udef_blocksize);
+			}
       }
 
       if(argv[tok+1] == NULL)
@@ -535,6 +497,34 @@ int main(int argc, char* argv[])
    int i = 0; 
    int mt = 0;
 
+	if(udef_verbose)
+	{
+		char* nlstr = {0};
+		switch(udef_nukelevel)
+		{
+			case NUKE_ZERO:
+				nlstr = "Zeroing";
+				break;
+			case NUKE_PATTERN:
+				nlstr = "Pattern";
+				break;
+			case NUKE_RANDOM_SLOW:
+				nlstr = "Slow Random";
+				break;
+			case NUKE_RANDOM_FAST:
+				nlstr = "Fast Random";
+				break;
+			default:
+				nlstr = "Unknown";
+				break;
+		}
+
+		printf("Test mode: %s\n", udef_testmode ? "ENABLED" : "DISABLED");
+		printf("Block size: %d\n", udef_blocksize);
+		printf("Wipe method: %s\n", nlstr);
+		printf("Pass #: %u\n", udef_passes);
+		printf("Write mode: %cSYNC\n", udef_wmode ? 'A' : 0);
+	}
    echoList();
 
    do
@@ -550,9 +540,6 @@ int main(int argc, char* argv[])
 #else
       sprintf(media, "/dev/%s%c", mediaList[mt], 'a' + i);
 #endif
-
-		if(udef_testmode)
-			sprintf(media, "/dev/null");
 
       /* Set media size */
       size = getSize(media);

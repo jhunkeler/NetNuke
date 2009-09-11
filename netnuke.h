@@ -4,7 +4,7 @@
 /* Prototypes */
 void fillRandom(char buffer[], uint64_t length);
 void staticPattern() __attribute__((alias("fillRandom")));
-int32_t nuke(const char* media, uint64_t size);
+int32_t nuke(char* media, uint64_t size);
 uint64_t getSize(const char* media);
 void echoList(void);
 void usage(const char* cmd);
@@ -39,7 +39,7 @@ int humanize_number(char *buf, size_t len, int64_t bytes,
     along with this program.  If not, see <http://www.gnu.org/licenses/>."
 
 /* Output update speed based on writes */
-#define RETAINER 512
+#define RETAINER 128
 
 /* Used to assist argument parsing */
 #define ARGMATCH(arg) strncmp(argv[tok], arg, strlen(arg)) == 0 
