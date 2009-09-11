@@ -288,7 +288,7 @@ void echoList()
 
    } while( 1 );
 
-   printf("%d device%c detected\n", mediaFound, mediaFound < 1 || mediaFound > 1 ? 's' : 0 );
+   printf("%d device%s detected\n", mediaFound, mediaFound < 1 || mediaFound > 1 ? "s" : " \b" );
    putchar('\n');
 }
 
@@ -352,6 +352,16 @@ void usage(const char* cmd)
    printf("--verbose-high    -v       Debug level verbosity\n");
    printf("--version         -V\n");
    putchar('\n');
+}
+
+void version_short()
+{
+    printf("NetNuke v%d.%d-%s\nCopyright (C) 2009  %s <%s>\n\
+This software is licensed under %sv%d\n",
+	NETNUKE_VERSION_MAJOR, NETNUKE_VERSION_MINOR,
+	NETNUKE_VERSION_REVISION, NETNUKE_AUTHOR, 
+	NETNUKE_AUTHOR_EMAIL, NETNUKE_LICENSE_TYPE,
+	NETNUKE_LICENSE_VERSION);
 }
 
 void version(const char* cmd)
@@ -497,6 +507,8 @@ int main(int argc, char* argv[])
    int i = 0; 
    int mt = 0;
 
+   version_short();
+   putchar('\n');
 	if(udef_verbose)
 	{
 		char* nlstr = {0};
@@ -525,6 +537,7 @@ int main(int argc, char* argv[])
 		printf("Pass #: %u\n", udef_passes);
 		printf("Write mode: %cSYNC\n", udef_wmode ? 'A' : 0);
 	}
+   putchar('\n');
    echoList();
 
    do

@@ -8,6 +8,7 @@ int32_t nuke(char* media, uint64_t size);
 uint64_t getSize(const char* media);
 void echoList(void);
 void usage(const char* cmd);
+void version_short();
 void version(const char* cmd);
 #ifndef __FreeBSD__
 int humanize_number(char *buf, size_t len, int64_t bytes,
