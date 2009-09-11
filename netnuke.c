@@ -42,12 +42,21 @@
 
 /* Global variables */
 static int64_t error;
+
+nukeLevel_t udef_nukelevel = NUKE_PATTERN; /* Static patterns is default */
 bool udef_verbose = false;
+bool udef_verbose_high = false;
 int8_t udef_wmode = 0; /* O_SYNC is default */
-int32_t udef_nukelevel = 1; /* Static patterns is default */
-int32_t udef_passes = 2;
+int32_t udef_passes = 1;
 bool udef_testmode = true; /* Test mode should always be enabled by default. */
 int32_t udef_blocksize = 512; /* 1 block = 512 bytes*/
+
+const char sPattern[] = {
+	0xA0, 0xB0, 0xC0, 0xD0, 0xE0, 0xF0,
+	0xA1, 0xB1, 0xC1, 0xD1, 0xE1, 0xF1,
+	0xA2, 0xB2, 0xC2, 0xD2, 0xE2, 0xF2,
+	0xA3, 0xB3, 0xC3, 0xD3, 0xE3, 0xF3
+};
 
 /* List of media types that we can nuke */
 #ifdef __FreeBSD__
@@ -76,40 +85,50 @@ int32_t udef_blocksize = 512; /* 1 block = 512 bytes*/
    };
 #endif
 
-/* Prototypes */
-void fillRandom(int32_t buffer[], uint64_t length);
-int32_t nuke(const char* media, uint64_t size);
-uint64_t getSize(const char* media);
-void echoList(void);
-int humanize_number(char *buf, size_t len, int64_t bytes,
-          const char *suffix, int scale, int flags);
 
-
-void fillRandom(int32_t buffer[], uint64_t length)
+void fillRandom(char buffer[], uint64_t length)
 {
-   uint32_t random, random_count;
+   uint32_t random = 0, random_count = 0;
+   int32_t linebreak = 0;
 
    /* Initialize random seed */
    srand(time(NULL) * time(NULL) / 3 + 6201985 * 3.14159); 
-   /* Fills the write buffer with random garbage */
-   int32_t linebreak = 0;
 
+   /* Define a single static pattern */
+   if(udef_nukelevel == NUKE_PATTERN)
+   {
+	   random = rand() % strlen(sPattern) + 1;
+	   //printf("size = %d  STATIC = ### %x ###\n", strlen(sPattern), (int)random);
+	   buffer[random_count] = sPattern[random];
+   }
+
+   /* Fills the write buffer with random garbage */
    for(random_count = 0; random_count < length; random_count++)
    {
-      random = rand() % RAND_MAX;
-      buffer[random_count] = random;
-      /*
-      printf("0x%0.8X  ", (char)random);
+	   if(udef_nukelevel == NUKE_RANDOM_SLOW || udef_nukelevel == NUKE_RANDOM_FAST)
+	  {
+		  random = rand() % RAND_MAX;
+		  //printf("RANDOM = ### %x ###\n", random);
+		  buffer[random_count] = random;
+	  }
+	  
+	  /* This is a debug feature to prove the random generator is functioning */
+	  if(udef_verbose_high)
+	  {
+		 printf("0x%08X  ", (char)random);
 
-      if(linebreak == 5)
-      {
-         printf("\n");
-         linebreak = -1;
-      }
-      */
-      linebreak++;
+		 if(linebreak == 5)
+		 {
+			printf("\n");
+			linebreak = -1;
+		 }
+        
+		 linebreak++;
+	  }
    }
-   //printf("\n");
+   if(udef_verbose_high)
+      putchar('\n'); 
+
 }
 
 int nuke(const char* media, uint64_t size)
@@ -120,13 +139,18 @@ int nuke(const char* media, uint64_t size)
    char mediaSize[BUFSIZ];
    char writeSize[BUFSIZ];
    char writePerSecond[BUFSIZ];
+   int32_t pass;
    uint64_t byteSize = 1024;
    uint64_t times, block;
-   int32_t  wTable[byteSize];
+   char  wTable[byteSize];
    uint32_t startTime, currentTime, endTime; 
    int32_t retainer = 0;
 
-   int fd = open("/dev/null", O_WRONLY | O_ASYNC);
+   /* Set the IO mode */
+   int O_UFLAG = udef_wmode ? O_ASYNC : O_SYNC;
+	//char* testflag = udef_testmode ? "/dev/null" : media;
+
+   int fd = open(media, O_WRONLY | O_UFLAG);
    if(!fd)
    {
       perror("nuke"); 
@@ -136,62 +160,77 @@ int nuke(const char* media, uint64_t size)
    /* Generate a size string based on the media size. example: 256M */
    humanize_number(mediaSize, 5, (uint64_t)size, "", 
       HN_AUTOSCALE, HN_B | HN_NOSPACE | HN_DECIMAL);
-   
    printf("Wiping %s: %ju (%s)\n", media, (intmax_t)size, mediaSize);
-   /* Determine how many writes and at what byte size */
+   
+   /* Determine how many writes to perform, and at what byte size */
    times = size / byteSize;
+   
    /* Dump random garbage to the write table */
-   fillRandom(&wTable, byteSize);
+   if(udef_nukelevel == NUKE_RANDOM_SLOW || udef_nukelevel == NUKE_RANDOM_FAST)
+	   fillRandom(wTable, byteSize);
+   else if(udef_nukelevel == NUKE_ZERO)
+	   memset(wTable, 0, byteSize);
+   else
+	   staticPattern(wTable, byteSize);
 
-   startTime = time(NULL);
-   for( block = 0 ; block <= times ; block++)
+
+   for( pass = 1; pass <= udef_passes ; pass++ )
    {
-      currentTime = time(NULL);
-      long double bytes = (float)(size / times * block);
+	   startTime = time(NULL);
+	   for( block = 0 ; block <= times ; block++)
+	   {
+		  currentTime = time(NULL);
+		  long double bytes = (float)(size / times * block);
 
-      error = write(fd, (char*)wTable, sizeof(wTable));  
-      
-      switch(error)
-      {
-         case EIO:
-         {
-            int64_t blockPosition = (int64_t)lseek(fd, -1, SEEK_CUR);
-            printf("I/O Error: Unable to write to block \"%jd\"\n", blockPosition);
-         }
-         break;
+		  error = write(fd, (char*)wTable, sizeof(wTable));  
+	      
+		  switch(error)
+		  {
+			 case EIO:
+			 {
+				int64_t blockPosition = (int64_t)lseek(fd, -1, SEEK_CUR);
+				printf("I/O Error: Unable to write to block \"%jd\"\n", blockPosition);
+			 }
+			 break;
 
-         default:
-            break;
-      };
-      
-      /* Generate a size string based on bytes written. example: 256M */
-      humanize_number(writeSize, 5,
-            bytes, "", HN_AUTOSCALE, HN_B | HN_NOSPACE | HN_DECIMAL);
+			 default:
+				break;
+		  };
+	      
+		  /* Generate a size string based on bytes written. example: 256M */
+		  humanize_number(writeSize, 5,
+				bytes, "", HN_AUTOSCALE, HN_B | HN_NOSPACE | HN_DECIMAL);
 
-      /* Generate a size string based on writes per second. example: 256M */
-      humanize_number(writePerSecond, 5,
-            (intmax_t)((long double)bytes / ((long double)currentTime - (long double)startTime)), "", 
-             HN_AUTOSCALE, HN_B | HN_NOSPACE | HN_DECIMAL);
+		  /* Generate a size string based on writes per second. example: 256M */
+		  humanize_number(writePerSecond, 5,
+				(intmax_t)((long double)bytes / ((long double)currentTime - (long double)startTime)), "", 
+				 HN_AUTOSCALE, HN_B | HN_NOSPACE | HN_DECIMAL);
 
-      /* Save I/O by printing our progress every X iterations with a retainer*/
-      if(retainer > 128 || block == times)
-      {
-         /* Output our progress */
-         printf("\t%jd of %jd blocks    [ %s / %3.1Lf%% / %s/s ]\r", 
-               block, 
-               times,
-               writeSize,
-               (bytes / (long double)size) * 100L,
-               writePerSecond
-            );
-         retainer = -1;
+		  /* Save I/O by printing our progress every X iterations with a retainer*/
+		  if(retainer > RETAINER || block == times)
+		  {
+			 if(udef_passes > 1)
+				printf("pass %d ", pass);
 
-         /* Recycle the write table with random garbage */
-         fillRandom(&wTable, byteSize);
-      }
-      ++retainer;
-   }
-   endTime = time(NULL);
+			 /* Output our progress */
+			 printf("\t%jd of %jd blocks    [ %s / %3.1Lf%% / %s/s ]\r", 
+				   block, 
+				   times,
+				   writeSize,
+				   (bytes / (long double)size) * 100L,
+				   writePerSecond
+				);
+			 retainer = -1;
+
+			 /* Recycle the write table with random garbage */
+			 if(udef_nukelevel == NUKE_RANDOM_SLOW)
+				 fillRandom(wTable, byteSize);
+		  } 
+		  
+		  ++retainer;
+	   } /* BLOCK WRITE */
+	   endTime = time(NULL);
+   } /* PASSES */
 
    putchar('\n');
    close(fd);
@@ -218,6 +257,9 @@ void echoList()
 #else
       sprintf(media, "/dev/%s%c", mediaList[mt], 'a' + i);
 #endif
+
+		if(udef_testmode)
+			sprintf(media, "/dev/null");
 
       /* Set media size */
       size = getSize(media);
@@ -292,8 +334,7 @@ uint64_t getSize(const char* media)
 
 void usage(const char* cmd)
 {
-   putchar('\n');
-   printf("usage: %s\n", cmd);
+   printf("usage: %s [options] ...\n", cmd);
    printf("--help            -h       This message\n");
    printf("--write-mode s    -w  s    Valid values:\n\
                               0: Synchronous (default)\n\
@@ -302,12 +343,13 @@ void usage(const char* cmd)
                               0: Zero out (quick wipe)\n\
                               1: Static patterns (0xA, 0xB, ...)\n\
                               2: Fast random (single random buffer across media)\n\
-                              3: Slow random (generate random buffer every 128 blocks)\n\
+                              3: Slow random (regenerate random buffer)\n\
                               4: Ultra-slow re-writing method\n");
    printf("--passes n        -p  n    Number of wipes to perform on a single device\n");
    printf("--disable-test             Disables test-mode, and allows write operations\n");
    printf("--block-size n    -b  n    Blocks at once\n");
    printf("--verbose         -v\n");
+   printf("--verbose-high    -v       Debug level verbosity\n");
    printf("--version         -V\n");
    putchar('\n');
 }
@@ -326,32 +368,11 @@ void version(const char* cmd)
    printf("That source code (from libutil) is licensed under the BSD software license.\n\n");
 }
 
-#define ARGMATCH(arg) strncmp(argv[tok], arg, strlen(arg)) == 0 
-#define ARGNULL(arg) if(argv[tok arg] == NULL) exit(1);
-#define ARGVALINT(ref) tok++; ref = atoi(argv[tok])
-#define ARGVALSTR(ref) tok++; ref = argv[tok];
-
-#define NOZERO 0
-#define NONEGATIVE 2
-#define NEEDNUM 4
-#define NEEDSTR 8
 int filterArg(const char* key, char* value, short flags)
 {
    int test;
    int length = strlen(value);
  
-   if((flags & NEEDNUM) > 0)
-   {
-      for(test = 0; test < length; test++)
-      {
-         if(!isdigit(value[test]))
-         {
-            printf("argument %s did not receive an integer\n", key);
-            exit(1);
-         }
-      }
-   }
-
    if((flags & NONEGATIVE) > 0)
    {
       if((atoi(value) < 0))
@@ -370,6 +391,18 @@ int filterArg(const char* key, char* value, short flags)
       }
    }
 
+
+   if((flags & NEEDNUM) > 0)
+   {
+      for(test = 0; test < length; test++)
+      {
+         if(!isdigit(value[test]))
+         {
+            printf("argument %s did not receive an integer\n", key);
+            exit(1);
+         }
+      }
+   }
 
    return 0;
 }
@@ -395,7 +428,11 @@ int main(int argc, char* argv[])
       {
          udef_verbose = true;
       }
-
+      if(ARGMATCH("--verbose-high") || ARGMATCH("-vv"))
+      {
+         udef_verbose_high = true;
+         udef_verbose = true;
+      }
    }
 
    /* Dynamic arguments come second */
@@ -407,23 +444,52 @@ int main(int argc, char* argv[])
          ARGNULL(+1);
          if(filterArg(argv[tok], argv[tok+1], NONEGATIVE|NEEDNUM) == 0)
          {
-            ARGVALINT(udef_wmode);            
+            ARGVALINT(udef_wmode);
          }
 
          if(udef_verbose)
-            printf("write mode is %d\n", udef_wmode);
+				printf("Write mode: %cSYNC\n", udef_wmode ? 'A' : 0);
       }
       if(ARGMATCH("--nuke-level") || ARGMATCH("-n"))
       {
          ARGNULL(+1);
          if(filterArg(argv[tok-1], argv[tok+1], NONEGATIVE|NEEDNUM) == 0)
          {
-            ARGVALINT(udef_nukelevel);
-         }
-
+				ARGVALINT(udef_nukelevel);
+				if(udef_nukelevel > NUKE_REWRITE)
+					udef_nukelevel = NUKE_PATTERN;
+			}
+			/* TODO: Remove this when it is implemented! */
+			if(udef_nukelevel == NUKE_REWRITE)
+			{
+				printf("*** Rewrite mode is not implemented, using default.\n");
+				udef_nukelevel = NUKE_PATTERN;
+			}
+        
          if(udef_verbose)
-            printf("nuke level is %d\n", udef_nukelevel);
+			{
+				char* nlstr = {0};
+				switch(udef_nukelevel)
+				{
+					case NUKE_ZERO:
+						nlstr = "Zeroing";
+						break;
+					case NUKE_PATTERN:
+						nlstr = "Pattern";
+						break;
+					case NUKE_RANDOM_SLOW:
+						nlstr = "Slow Random";
+						break;
+					case NUKE_RANDOM_FAST:
+						nlstr = "Fast Random";
+						break;
+					default:
+						nlstr = "Unknown";
+						break;
+				}
 
+				printf("Wipe method: %s\n", nlstr);
+			}
       }
       if(ARGMATCH("--passes") || ARGMATCH("-p"))
       {
@@ -436,7 +502,7 @@ int main(int argc, char* argv[])
          }
 
          if(udef_verbose)
-            printf("passes is %u\n", udef_passes);
+				printf("Pass #: %u\n", udef_passes);
 
       }
       if(ARGMATCH("--disable-test"))
@@ -455,7 +521,7 @@ int main(int argc, char* argv[])
          }
 
          if(udef_verbose)
-            printf("block size is %d\n", udef_blocksize);
+				printf("Block size: %d\n", udef_blocksize);
       }
 
       if(argv[tok+1] == NULL)
@@ -484,6 +550,10 @@ int main(int argc, char* argv[])
 #else
       sprintf(media, "/dev/%s%c", mediaList[mt], 'a' + i);
 #endif
+
+		if(udef_testmode)
+			sprintf(media, "/dev/null");
+
       /* Set media size */
       size = getSize(media);
 

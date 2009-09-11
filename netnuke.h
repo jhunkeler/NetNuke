@@ -1,6 +1,20 @@
 #ifndef NETNUKE_H
 #define NETNUKE_H
 
+/* Prototypes */
+void fillRandom(char buffer[], uint64_t length);
+void staticPattern() __attribute__((alias("fillRandom")));
+int32_t nuke(const char* media, uint64_t size);
+uint64_t getSize(const char* media);
+void echoList(void);
+void usage(const char* cmd);
+void version(const char* cmd);
+#ifndef __FreeBSD__
+int humanize_number(char *buf, size_t len, int64_t bytes,
+          const char *suffix, int scale, int flags);
+#endif
+
+/* Defines */
 #define NETNUKE_VERSION_MAJOR 1
 #define NETNUKE_VERSION_MINOR 0
 #ifdef _SVN_SUPPORT
@@ -23,6 +37,31 @@
     GNU General Public License for more details.\n\n\
     You should have received a copy of the GNU General Public License\n\
     along with this program.  If not, see <http://www.gnu.org/licenses/>."
+
+/* Output update speed based on writes */
+#define RETAINER 512
+
+/* Used to assist argument parsing */
+#define ARGMATCH(arg) strncmp(argv[tok], arg, strlen(arg)) == 0 
+#define ARGNULL(arg) if(argv[tok arg] == NULL) exit(1);
+#define ARGVALINT(ref) tok++; ref = atoi(argv[tok])
+#define ARGVALSTR(ref) tok++; ref = argv[tok];
+
+/* Flags for filterArgs */
+#define NOZERO 0
+#define NONEGATIVE 2
+#define NEEDNUM 4
+#define NEEDSTR 8
+
+/* Enumerated lists */
+typedef enum nlevel
+{
+   NUKE_ZERO=0,
+   NUKE_PATTERN,
+   NUKE_RANDOM_FAST,
+   NUKE_RANDOM_SLOW,
+   NUKE_REWRITE
+} nukeLevel_t;
 
 
 #endif /* NETNUKE_H */
