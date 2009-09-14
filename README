@@ -1,0 +1,112 @@
+PROGRAM: NetNuke
+LICENSE: GNU/GPLv3
+PURPOSE: Erases all storage media deteced by the system
+
+AUTHOR:  Joseph Hunkeler
+EMAIL:   jhunk@stsci.edu, jhunkeler@gmail.com
+
+
+BUGS
+----
+
+- SATA devices are not supported on BSD until code can be implemented to fix 
+a device iteration failure.  /dev/ad0 is the start of IDE.  /dev/ad4 is the 
+start of SATA.  Linux should remain OK.
+
+- If a SCSI bus failure occurs, NetNuke does not know to skip its current
+device (yet).
+
+
+OPERATING SYSTEMS SUPPORTED
+---------------------------
+
+BSD:
+	FreeBSD - Works
+	OpenBSD - Not Tested, and will not work yet.
+	NetBSD  - Not Tested, and will not work yet.
+
+Linux:
+	2.4 - Not Tested, and may not work
+	2.6 - Works, but needs more testing
+
+
+OPTION REFERENCE
+----------------
+
+--help
+			Display NetNuke application options, and exit.
+
+
+
+--write-mode [s] or -w [s]:	
+	Accepts a 32-bit integer value.
+      0: Synchronous
+						Data is immediately committed to the disk.
+
+			1: Asynchronous
+						Data is buffered, and is committed to the disk over time. (Very fast)
+
+			Default: 0
+
+--nuke-level [n] or -nl [n]
+	Accepts a 32-bit integer value.
+  		0: Zero out
+				 - Write zeros across all devices.
+
+      1: Static patterns
+				 - One of the 24 patterns are selected per device (or per write pass).
+					 
+					 Pattern table is as follows:
+							0xA0, 0xB0, 0xC0, 0xD0, 0xE0, 0xF0,
+							0xA1, 0xB1, 0xC1, 0xD1, 0xE1, 0xF1,
+							0xA2, 0xB2, 0xC2, 0xD2, 0xE2, 0xF2,
+							0xA3, 0xB3, 0xC3, 0xD3, 0xE3, 0xF3
+					 
+      2: Fast random 
+				 - A random buffer is generated, and the data is written across all
+					 devices.
+
+      3: Slow random (regenerate random buffer)
+				 - A random buffer is regenerated every 128 completed write operations.
+
+      4: Ultra-slow re-writing method
+				 - NOT IMPLEMENTED (defaults to static pattern method)
+
+			Default: 1
+
+--passes [n] or -p [n]
+	Accepts a 32-bit integer value.
+			This options defines the number of full passes NetNuke should perform on
+			a single device during its operation.  
+			Default: 1
+
+
+
+--disable-test
+	USE WITH EXTREME CAUTION!
+			Test-mode is disabled, and all write operations are allowed to begin.
+			Default: NetNuke writes all test iterations to /dev/null
+
+
+
+--block-size [n] or -b [n]
+	Accepts a 32-bit integer value.
+			This option defines the number of device blocks NetNuke should attempt 
+			to wipe. 
+			Default: 512
+
+
+
+--verbose or -v
+	Enables verbose messages
+	Default: off
+
+
+--verbose-high or -vv
+	Enables a high degree of verbose messages.  The output will obstruct any usable
+	human-readable data, as well as cause the write operation to slow down to a
+	crawl.  
+	Default: off
+
+--version or -V
+	Display NetNuke's version and license, then exit.
