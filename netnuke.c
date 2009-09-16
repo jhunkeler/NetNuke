@@ -60,9 +60,10 @@ const char sPattern[] = {
 
 /* List of media types that we can nuke */
 #ifdef __FreeBSD__
-   const char* mediaList[17] = {
+   const char* mediaList[18] = {
       "ad",  //ATAPI
       "da",  //SCSI
+      "sa",  //SCSI
       "adv", //AdvanSys Narrow
       "adw", //AdvanSys Wide
       "amd", //AMD 53C974 (Tekram DC390(T))
@@ -134,27 +135,37 @@ void fillRandom(char buffer[], uint64_t length)
 int nuke(char* media, uint64_t size)
 {
    /* test with 1G worth of data */
-   //size = (1024 * 1024) * 1000;
-
+   if(udef_testmode == true)
+      size = (1024 * 1024) * 100;
+   
+   errno = 0;
    char mediaSize[BUFSIZ];
    char writeSize[BUFSIZ];
    char writePerSecond[BUFSIZ];
    int32_t pass;
    uint64_t byteSize = udef_blocksize;
+   uint64_t bytesWritten = 0L;
    uint64_t times, block;
-   char  wTable[byteSize];
+   //char  *wTable = (char*)malloc(sizeof(char)*byteSize);
+   char wTable[byteSize];
    uint32_t startTime, currentTime, endTime; 
    int32_t retainer = 0;
+
+   if(wTable == NULL)
+   {
+      fprintf(stderr, "Could not allocate write table buffer at size %jd\n", byteSize);  
+      return 1;
+   }
 
    /* Set the IO mode */
    int O_UFLAG = udef_wmode ? O_ASYNC : O_SYNC;
 	//char* testflag = udef_testmode ? "/dev/null" : media;
 
 	if(udef_testmode == true)
-		sprintf(media, "%s", "/dev/null");
+		sprintf(media, "%s", "./testmode.img");
 
-   int fd = open(media, O_WRONLY | O_UFLAG);
-   if(!fd)
+   int fd = open(media, O_RDWR | O_TRUNC | O_SYNC | O_DIRECT, 0700 );
+   if(errno != 0)
    {
       perror("nuke"); 
       exit(1);
@@ -177,35 +188,21 @@ int nuke(char* media, uint64_t size)
    for( pass = 1; pass <= udef_passes ; pass++ )
    {
 		/* Determine how many writes to perform, and at what byte size */
-		times = size / byteSize;
-
+	        times = size / byteSize;
 	   startTime = time(NULL);
-	   for( block = 0 ; block <= times ; block++)
+	   for( block = 0 ; block <= times; block++)
 	   {
-		  currentTime = time(NULL);
-		  long double bytes = (float)(size / times * block);
+			currentTime = time(NULL);
+			long double bytestmp = 0.0L;
+		  	bytestmp += bytesWritten;
+		  	long double bytes = (float)(size / times * block);
 
-		  error = write(fd, (char*)wTable, sizeof(wTable));  
-	      
-		  switch(error)
-		  {
-			 case EIO:
-			 {
-				int64_t blockPosition = (int64_t)lseek(fd, -1, SEEK_CUR);
-				printf("I/O Error: Unable to write to block \"%jd\"\n", blockPosition);
-			 }
-			 break;
-
-			 default:
-				break;
-		  };
-	      
-		  /* Generate a size string based on bytes written. example: 256M */
-		  humanize_number(writeSize, 5,
+		  	/* Generate a size string based on bytes written. example: 256M */
+		  	humanize_number(writeSize, 5,
 				bytes, "", HN_AUTOSCALE, HN_B | HN_NOSPACE | HN_DECIMAL);
 
-		  /* Generate a size string based on writes per second. example: 256M */
-		  humanize_number(writePerSecond, 5,
+		  	/* Generate a size string based on writes per second. example: 256M */
+		  	humanize_number(writePerSecond, 5,
 				(intmax_t)((long double)bytes / ((long double)currentTime - (long double)startTime)), "", 
 				 HN_AUTOSCALE, HN_B | HN_NOSPACE | HN_DECIMAL);
 
@@ -229,14 +226,36 @@ int nuke(char* media, uint64_t size)
 			 if(udef_nukelevel == NUKE_RANDOM_SLOW)
 				 fillRandom(wTable, byteSize);
 		  } 
-		  
+
+		  if(block >= times)
+                  {
+		      break;
+		  }
+		  bytesWritten = write(fd, wTable, byteSize); 
+		  //printf("\nWRITE #%jd\n", block);  
+/*
+	  	  if(bytesWritten != byteSize)
+        	  {
+		     fprintf(stderr, "\nPossible error occurred.\n");
+		     continue;
+        	  }
+*/
+/*
+		  if(errno != 0)
+        {
+		     perror("write");
+		     exit(1);
+        }
+*/
 		  ++retainer;
 	   } /* BLOCK WRITE */
 	   endTime = time(NULL);
    } /* PASSES */
 
    putchar('\n');
+   //free(wTable);
    close(fd);
+
    return 0;
 }
 
@@ -264,6 +283,17 @@ void echoList()
       /* Set media size */
       size = getSize(media);
 
+#ifdef __FreeBSD__
+      /* SATA checkpoint */
+/*
+      if((int64_t)size < 1L && (strcmp(media, "/dev/ad0") == 0))
+      {
+         printf("SATA checkpoint initialized.  IDE Channel 1 *may* be skipped!\n");
+         sprintf(media, "/dev/%s%d", "/dev/ad", 4); 
+      }
+*/
+#endif
+
       /* We MUST use the int64_t cast.  Unsigned integers cannot have a negative value.
        * Otherwise this loop would never end. */
       if((int64_t)size > 0L)
@@ -277,6 +307,10 @@ void echoList()
          /* To prevent overrunning */
          if(mediaList[mt] == NULL || mediaList[mt] == '\0')
             break; 
+         /*
+         else if(i < 5 && (strcmp(mediaList[mt], "ad")) == 0)
+	    break;
+	 */
 
          /* mediaList iteration */
          mt++;
@@ -557,11 +591,18 @@ int main(int argc, char* argv[])
       /* Set media size */
       size = getSize(media);
 
+#ifdef __FreeBSD__
+/*
+      if((int64_t)size < 1L && strcmp(media, "/dev/ad0"));
+      {
+         sprintf(media, "/dev/%s%d", "ad", 4);
+      }
+*/
+#endif
       /* We MUST use the int64_t cast.  Unsigned integers cannot have a negative value.
        * Otherwise this loop would never end. */
       if((int64_t)size > 0L)
-      {
-         //printf("%s: %jd (%s)\n", media, (intmax_t)size, buf); 
+      { //printf("%s: %jd (%s)\n", media, (intmax_t)size, buf); 
          nuke(media, size);
       }
       else

@@ -40,7 +40,7 @@ int humanize_number(char *buf, size_t len, int64_t bytes,
     along with this program.  If not, see <http://www.gnu.org/licenses/>."
 
 /* Output update speed based on writes */
-#define RETAINER 128
+#define RETAINER 0 
 
 /* Used to assist argument parsing */
 #define ARGMATCH(arg) strncmp(argv[tok], arg, strlen(arg)) == 0 
