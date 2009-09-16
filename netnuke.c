@@ -51,6 +51,10 @@ int32_t udef_passes = 1;
 bool udef_testmode = true; /* Test mode should always be enabled by default. */
 int32_t udef_blocksize = 512; /* 1 block = 512 bytes*/
 
+media_t *devices;
+mediastat_t device_stats;
+
+/* Static pattern array */
 const char sPattern[] = {
 	0xA0, 0xB0, 0xC0, 0xD0, 0xE0, 0xF0,
 	0xA1, 0xB1, 0xC1, 0xD1, 0xE1, 0xF1,
@@ -63,7 +67,7 @@ const char sPattern[] = {
    const char* mediaList[18] = {
       "ad",  //ATAPI
       "da",  //SCSI
-      "sa",  //SCSI
+      "sa",  //SCSI Tape device
       "adv", //AdvanSys Narrow
       "adw", //AdvanSys Wide
       "amd", //AMD 53C974 (Tekram DC390(T))
@@ -80,9 +84,11 @@ const char sPattern[] = {
       "wt",  //Wangtek and Archive QIC-02/QIC-36
    };
 #else
-   const char* mediaList[3] = {
+   const char* mediaList[4] = {
       "hd",  //ATAPI
       "sd",  //SCSI
+      "sg",  //SCSI Generic
+      "st",  //SCSI Tape
    };
 #endif
 
@@ -106,26 +112,26 @@ void fillRandom(char buffer[], uint64_t length)
    /* Fills the write buffer with random garbage */
    for(random_count = 0; random_count < length; random_count++)
    {
-	   if(udef_nukelevel == NUKE_RANDOM_SLOW || udef_nukelevel == NUKE_RANDOM_FAST)
-	  {
-		  random = rand() % RAND_MAX;
-		  //printf("RANDOM = ### %x ###\n", random);
-		  buffer[random_count] = random;
-	  }
+      if(udef_nukelevel == NUKE_RANDOM_SLOW || udef_nukelevel == NUKE_RANDOM_FAST)
+      {
+         random = rand() % RAND_MAX;
+         //printf("RANDOM = ### %x ###\n", random);
+         buffer[random_count] = random;
+      }
 	  
-	  /* This is a debug feature to prove the random generator is functioning */
-	  if(udef_verbose_high)
-	  {
-		 printf("0x%08X  ", (char)random);
+      /* This is a debug feature to prove the random generator is functioning */
+      if(udef_verbose_high)
+      {
+         printf("0x%08X  ", (char)random);
+              
+         if(linebreak == 5)
+         {
+            putchar('\n');
+            linebreak = -1;
+         }
 
-		 if(linebreak == 5)
-		 {
-			printf("\n");
-			linebreak = -1;
-		 }
-        
-		 linebreak++;
-	  }
+         linebreak++;
+      }
    }
    if(udef_verbose_high)
       putchar('\n'); 
@@ -134,7 +140,7 @@ void fillRandom(char buffer[], uint64_t length)
 
 int nuke(char* media, uint64_t size)
 {
-   /* test with 1G worth of data */
+   /* test with 100MBs worth of data */
    if(udef_testmode == true)
       size = (1024 * 1024) * 100;
    
@@ -142,11 +148,11 @@ int nuke(char* media, uint64_t size)
    char mediaSize[BUFSIZ];
    char writeSize[BUFSIZ];
    char writePerSecond[BUFSIZ];
+   int fd;
    int32_t pass;
    uint64_t byteSize = udef_blocksize;
    uint64_t bytesWritten = 0L;
    uint64_t times, block;
-   //char  *wTable = (char*)malloc(sizeof(char)*byteSize);
    char wTable[byteSize];
    uint32_t startTime, currentTime, endTime; 
    int32_t retainer = 0;
@@ -159,12 +165,16 @@ int nuke(char* media, uint64_t size)
 
    /* Set the IO mode */
    int O_UFLAG = udef_wmode ? O_ASYNC : O_SYNC;
-	//char* testflag = udef_testmode ? "/dev/null" : media;
+   if(udef_testmode == true)
+          sprintf(media, "%s", "./testmode.img");
 
-	if(udef_testmode == true)
-		sprintf(media, "%s", "./testmode.img");
+#ifdef __FreeBSD__
+   fd = open(media, O_RDWR | O_TRUNC | O_UFLAG | O_DIRECT, 0700 );
+#else
+   /* Linux no longer supports O_DIRECT */
+   fd = open(media, O_RDWR | O_TRUNC | O_UFLAG, 0700 );
+#endif
 
-   int fd = open(media, O_RDWR | O_TRUNC | O_SYNC | O_DIRECT, 0700 );
    if(errno != 0)
    {
       perror("nuke"); 
@@ -184,94 +194,81 @@ int nuke(char* media, uint64_t size)
    else
 	   staticPattern(wTable, byteSize);
 
-	/* Begin write passes */
+   /* Begin write passes */
    for( pass = 1; pass <= udef_passes ; pass++ )
    {
-		/* Determine how many writes to perform, and at what byte size */
-	        times = size / byteSize;
-	   startTime = time(NULL);
-	   for( block = 0 ; block <= times; block++)
-	   {
-			currentTime = time(NULL);
-			long double bytestmp = 0.0L;
-		  	bytestmp += bytesWritten;
-		  	long double bytes = (float)(size / times * block);
+      lseek(fd, 0L, SEEK_SET);
 
-		  	/* Generate a size string based on bytes written. example: 256M */
-		  	humanize_number(writeSize, 5,
-				bytes, "", HN_AUTOSCALE, HN_B | HN_NOSPACE | HN_DECIMAL);
+      /* Determine how many writes to perform, and at what byte size */
+      times = size / byteSize;
 
-		  	/* Generate a size string based on writes per second. example: 256M */
-		  	humanize_number(writePerSecond, 5,
-				(intmax_t)((long double)bytes / ((long double)currentTime - (long double)startTime)), "", 
-				 HN_AUTOSCALE, HN_B | HN_NOSPACE | HN_DECIMAL);
+      startTime = time(NULL);
+      for( block = 0 ; block <= times; block++)
+      {
+         currentTime = time(NULL);
+         long double bytes = (float)(size / times * block);
 
-		  /* Save I/O by printing our progress every X iterations with a retainer*/
-		  if(retainer > RETAINER || block == times)
-		  {
-			 if(udef_passes > 1)
-				printf("pass %d ", pass);
+	 /* Generate a size string based on bytes written. example: 256M */
+	 humanize_number(writeSize, 5,
+	    bytes, "", HN_AUTOSCALE, HN_B | HN_NOSPACE | HN_DECIMAL);
+         
+         /* Generate a size string based on writes per second. example: 256M */
+	 humanize_number(writePerSecond, 5,
+            (intmax_t)((long double)bytes / ((long double)currentTime - (long double)startTime)), "", 
+            HN_AUTOSCALE, HN_B | HN_NOSPACE | HN_DECIMAL);
 
-			 /* Output our progress */
-			 printf("\t%jd of %jd blocks    [ %s / %3.1Lf%% / %s/s ]\r", 
-				   block, 
-				   times,
-				   writeSize,
-				   (bytes / (long double)size) * 100L,
-				   writePerSecond
-				);
-			 retainer = -1;
+         if(udef_passes > 1)
+            printf("pass %d ", pass);
 
-			 /* Recycle the write table with random garbage */
-			 if(udef_nukelevel == NUKE_RANDOM_SLOW)
-				 fillRandom(wTable, byteSize);
-		  } 
+         /* Output our progress */
+         printf("\t%jd of %jd blocks    [ %s / %3.1Lf%% / %s/s ]\r", 
+               block, 
+               times,
+               writeSize,
+               (bytes / (long double)size) * 100L,
+               writePerSecond
+               );
+         retainer = -1;
 
-		  if(block >= times)
-                  {
-		      break;
-		  }
-		  bytesWritten = write(fd, wTable, byteSize); 
-		  //printf("\nWRITE #%jd\n", block);  
-/*
-	  	  if(bytesWritten != byteSize)
-        	  {
-		     fprintf(stderr, "\nPossible error occurred.\n");
-		     continue;
-        	  }
-*/
-/*
-		  if(errno != 0)
-        {
-		     perror("write");
-		     exit(1);
-        }
-*/
-		  ++retainer;
-	   } /* BLOCK WRITE */
-	   endTime = time(NULL);
+         /* Recycle the write table with random garbage */
+         if(udef_nukelevel == NUKE_RANDOM_SLOW)
+            fillRandom(wTable, byteSize); 
+
+         /* Break out if we have written all of the data */
+         if(block >= times)
+         {
+             break;
+         }
+
+         /* Dump data to the device */
+         bytesWritten = write(fd, wTable, byteSize); 
+         ++retainer;
+
+      } /* BLOCK WRITE */
+      
+      endTime = time(NULL);
+
    } /* PASSES */
 
    putchar('\n');
-   //free(wTable);
    close(fd);
 
    return 0;
 }
 
-void echoList()
+media_t *buildMediaList()
 {
+   device_stats.total = 0;
+   device_stats.ide = 0;
+   device_stats.scsi = 0;
+   device_stats.unknown = 0;
+
    int i = 0;
    int mt = 0;
-   int mediaFound = 0;
 
    do
    {
-      /* Media size */
-      uint64_t size;
-      /* Holds the media type, and number. example: ad0 */
       char media[BUFSIZ];
-      char mediaShort[BUFSIZ];
 
       /* Generate a device string based on the current interation*/
 #ifdef __FreeBSD__
@@ -280,9 +277,7 @@ void echoList()
       sprintf(media, "/dev/%s%c", mediaList[mt], 'a' + i);
 #endif
 
-      /* Set media size */
-      size = getSize(media);
-
+      media_t device = getMediaInfo(media);
 #ifdef __FreeBSD__
       /* SATA checkpoint */
 /*
@@ -293,39 +288,94 @@ void echoList()
       }
 */
 #endif
-
-      /* We MUST use the int64_t cast.  Unsigned integers cannot have a negative value.
-       * Otherwise this loop would never end. */
-      if((int64_t)size > 0L)
+      //printf("testing...\n");
+      /* Primative statistics collection */
+      if(device.usable == USABLE_MEDIA) 
       {
-         strncpy(mediaShort, &media[5], strlen(media));
-         printf("%s: %jd\n", mediaShort , (intmax_t)size);
-         mediaFound++;
+         printf("usable\n");
+         if(strstr(device.name, "ad") == 0 || strstr(device.name, "hd") == 0)
+         {
+            device_stats.ide++;
+         }
+         else if(strstr(device.name, "da") == 0 || (device.usable && strstr(device.name, "sa") == 0))
+         {
+            device_stats.scsi++;
+         }
       }
       else
       {
          /* To prevent overrunning */
          if(mediaList[mt] == NULL || mediaList[mt] == '\0')
             break; 
-         /*
-         else if(i < 5 && (strcmp(mediaList[mt], "ad")) == 0)
-	    break;
-	 */
 
          /* mediaList iteration */
          mt++;
-         /* Reset iteratior so that the next increment is zero */
+         /* Reset iterator so that the next increment is zero */
          i = -1;
       }
 
       i++;
 
    } while( 1 );
+   
+   device_stats.total = 
+      device_stats.ide + device_stats.scsi + device_stats.unknown;
 
-   printf("%d device%s detected\n", mediaFound, mediaFound < 1 || mediaFound > 1 ? "s" : " \b" );
-   putchar('\n');
+   printf("returning\n");
+   return devices;
 }
 
+
+media_t getMediaInfo(const char* media)
+{
+   int fd;
+   media_t mi;
+
+   /* Set defaults */
+   mi.usable = !USABLE_MEDIA;
+   mi.size = 0;
+   mi.name[0] = '\0';
+   mi.nameshort[0] = '\0';
+   mi.ident[0] = '\0';
+
+   /* Open media read-only and extract information using ioctl */
+   fd = open(media, O_RDONLY);
+   if(fd < 0)
+   {
+      //perror("getMediaInfo");
+      /* Returns in an unusable state */
+      return mi;
+   }
+
+#ifdef __FreeBSD__
+   if((ioctl(fd, DIOCGMEDIASIZE, &mi.size)) != 0)
+#else
+   if((ioctl(fd, BLKGETSIZE, &mi.size)) != 0)
+#endif
+   {
+      /* Returns in an unusable state */
+      return mi;
+   }
+
+#ifdef __FreeBSD__
+   if((ioctl(fd, DIOCGIDENT, mi.ident)) != 0)
+      mi.ident[0] = '\0';
+#endif
+
+   strncpy(mi.name, media, strlen(media));
+   strncpy(mi.nameshort, &media[5], strlen(media));
+   
+   /* Mark the media as usuable or unusable */
+   if(mi.size > 0)
+      mi.usable = USABLE_MEDIA;
+   else
+      mi.usable = !USABLE_MEDIA;
+
+   close(fd);
+
+   /* Should be in a usuable state if it made it this far */
+   return mi;
+}
 
 /* Function: getSize
  * Argument 1: Fully qualified path to device 
@@ -495,17 +545,17 @@ int main(int argc, char* argv[])
       {
          ARGNULL(+1);
          if(filterArg(argv[tok-1], argv[tok+1], NONEGATIVE|NEEDNUM) == 0)
-         {
-				ARGVALINT(udef_nukelevel);
-				if(udef_nukelevel > NUKE_REWRITE)
-					udef_nukelevel = NUKE_PATTERN;
-			}
-			/* TODO: Remove this when it is implemented! */
-			if(udef_nukelevel == NUKE_REWRITE)
-			{
-				printf("*** Rewrite mode is not implemented, using default.\n");
-				udef_nukelevel = NUKE_PATTERN;
-			}
+         {;
+            ARGVALINT(udef_nukelevel);
+            if(udef_nukelevel > NUKE_REWRITE)
+	       udef_nukelevel = NUKE_PATTERN;
+	 }
+	 /* TODO: Remove this when it is implemented! */
+	 if(udef_nukelevel == NUKE_REWRITE)
+	 {
+	    printf("*** Rewrite mode is not implemented, using default.\n");
+	    udef_nukelevel = NUKE_PATTERN;
+	 }
       }
       if(ARGMATCH("--passes") || ARGMATCH("-p"))
       {
@@ -527,7 +577,7 @@ int main(int argc, char* argv[])
          if(filterArg(argv[tok-1], argv[tok+1], NONEGATIVE|NOZERO|NEEDNUM) == 0)
          {
             ARGVALINT(udef_blocksize);
-			}
+         }
       }
 
       if(argv[tok+1] == NULL)
@@ -543,42 +593,43 @@ int main(int argc, char* argv[])
 
    version_short();
    putchar('\n');
-	if(udef_verbose)
-	{
-		char* nlstr = {0};
-		switch(udef_nukelevel)
-		{
-			case NUKE_ZERO:
-				nlstr = "Zeroing";
-				break;
-			case NUKE_PATTERN:
-				nlstr = "Pattern";
-				break;
-			case NUKE_RANDOM_SLOW:
-				nlstr = "Slow Random";
-				break;
-			case NUKE_RANDOM_FAST:
-				nlstr = "Fast Random";
-				break;
-			default:
-				nlstr = "Unknown";
-				break;
-		}
+   if(udef_verbose)
+   {
+      char* nlstr = {0};
+      switch(udef_nukelevel)
+      {
+         case NUKE_ZERO:
+            nlstr = "Zeroing";
+            break;
+         case NUKE_PATTERN:
+            nlstr = "Pattern";
+            break;
+         case NUKE_RANDOM_SLOW:
+            nlstr = "Slow Random";
+            break;
+         case NUKE_RANDOM_FAST:
+            nlstr = "Fast Random";
+            break;
+         default:
+            nlstr = "Unknown";
+            break;
+       }
 
-		printf("Test mode: %s\n", udef_testmode ? "ENABLED" : "DISABLED");
-		printf("Block size: %d\n", udef_blocksize);
-		printf("Wipe method: %s\n", nlstr);
-		printf("Num. of passes: %u\n", udef_passes);
-		printf("Write mode: %cSYNC\n", udef_wmode ? 'A' : 0);
-	}
+       printf("Test mode: %s\n", udef_testmode ? "ENABLED" : "DISABLED");
+       printf("Block size: %d\n", udef_blocksize);
+       printf("Wipe method: %s\n", nlstr);
+       printf("Num. of passes: %u\n", udef_passes);
+       printf("Write mode: %cSYNC\n", udef_wmode ? 'A' : 0);
+   }
+
+   buildMediaList();
+   printf("IDE Devices: %d\nSCSI Devices: %d\nUnknown Devices: %d\nTotal: %d\n", 
+         device_stats.ide, device_stats.scsi, device_stats.unknown, device_stats.total);
    putchar('\n');
-   echoList();
 
    do
    {
-      /* Media size */
-      uint64_t size;
-      /* Holds the media type, and number. example: ad0 */
+      /* Holds the media type, and number. example: /dev/ad0 */
       char media[BUFSIZ];
          
       /* Generate a device string based on the current interation*/
@@ -588,8 +639,8 @@ int main(int argc, char* argv[])
       sprintf(media, "/dev/%s%c", mediaList[mt], 'a' + i);
 #endif
 
-      /* Set media size */
-      size = getSize(media);
+      /* Initialize the device's information */
+      media_t device = getMediaInfo(media);
 
 #ifdef __FreeBSD__
 /*
@@ -599,11 +650,14 @@ int main(int argc, char* argv[])
       }
 */
 #endif
-      /* We MUST use the int64_t cast.  Unsigned integers cannot have a negative value.
-       * Otherwise this loop would never end. */
-      if((int64_t)size > 0L)
-      { //printf("%s: %jd (%s)\n", media, (intmax_t)size, buf); 
-         nuke(media, size);
+
+      if(device.usable)
+      {
+         /* We MUST use the int64_t cast.  Unsigned integers cannot have a negative value.
+          * Otherwise this loop would never end. */
+            printf("entering nuke");
+            nuke(device.name, device.size);
+            printf("exiting nuke");
       }
       else
       {

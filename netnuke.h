@@ -54,6 +54,9 @@ int humanize_number(char *buf, size_t len, int64_t bytes,
 #define NEEDNUM 4
 #define NEEDSTR 8
 
+#define DISK_IDENT_SIZE BUFSIZ
+#define USABLE_MEDIA 0
+
 /* Enumerated lists */
 typedef enum nlevel
 {
@@ -63,6 +66,25 @@ typedef enum nlevel
    NUKE_RANDOM_SLOW,
    NUKE_REWRITE
 } nukeLevel_t;
+
+typedef struct MEDIASTAT_T
+{
+   int32_t total;
+   int32_t ide;
+   int32_t scsi;
+   int32_t unknown;
+} mediastat_t;
+
+typedef struct MEDIA_T
+{
+   int usable;
+   uint64_t size;
+   char name[30];
+   char nameshort[10];
+   char ident[DISK_IDENT_SIZE];
+} media_t;
+media_t *buildMediaList();
+media_t getMediaInfo(const char* media);
 
 
 #endif /* NETNUKE_H */
