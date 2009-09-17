@@ -21,7 +21,6 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
-#include <termcap.h>
 #include <signal.h>
 #include <string.h>
 #include <stdbool.h>
@@ -34,6 +33,7 @@
 #ifdef __FreeBSD__
    #include <libutil.h>
    #include <sys/disk.h>
+   #include <termcap.h>
 #else
    #include "human_readable.h"
    #include <sys/ioctl.h>
@@ -101,17 +101,17 @@ void fillRandom(char buffer[], uint64_t length)
    /* Initialize random seed */
    srand(time(NULL) * time(NULL) / 3 + 6201985 * 3.14159); 
 
-   /* Define a single static pattern */
-   if(udef_nukelevel == NUKE_PATTERN)
-   {
-	   random = rand() % strlen(sPattern) + 1;
-	   //printf("size = %d  STATIC = ### %x ###\n", strlen(sPattern), (int)random);
-	   buffer[random_count] = sPattern[random];
-   }
-
    /* Fills the write buffer with random garbage */
    for(random_count = 0; random_count < length; random_count++)
    {
+      /* Define a single static pattern */
+      if(udef_nukelevel == NUKE_PATTERN)
+      {
+              random = rand() % strlen(sPattern) + 1;
+              //printf("size = %d  STATIC = ### %x ###\n", strlen(sPattern), (int)random);
+              buffer[random_count] = sPattern[random];
+      }      
+
       if(udef_nukelevel == NUKE_RANDOM_SLOW || udef_nukelevel == NUKE_RANDOM_FAST)
       {
          random = rand() % RAND_MAX;
@@ -142,7 +142,9 @@ int nuke(media_t device)
 {
    uint64_t size = device.size;
    char media[BUFSIZ]; 
+   char mediashort[BUFSIZ];
    strncpy(media, device.name, strlen(device.name));
+   strncpy(mediashort, device.nameshort, strlen(device.nameshort));
 
    /* test with 100MBs worth of data */
    if(udef_testmode == true)
@@ -159,7 +161,6 @@ int nuke(media_t device)
    uint64_t times, block;
    char wTable[byteSize];
    uint32_t startTime, currentTime, endTime; 
-   int32_t retainer = 0;
 
    if(wTable == NULL)
    {
@@ -170,25 +171,14 @@ int nuke(media_t device)
    /* Set the IO mode */
    int O_UFLAG = udef_wmode ? O_ASYNC : O_SYNC;
    if(udef_testmode == true)
-          sprintf(media, "%s", "./testmode.img");
+          sprintf(media, "%s", "/tmp/testmode.img");
 
-#ifdef __FreeBSD__
-   fd = open(media, O_RDWR | O_TRUNC | O_UFLAG | O_DIRECT, 0700 );
-#else
-   /* Linux no longer supports O_DIRECT */
-   fd = open(media, O_RDWR | O_TRUNC | O_UFLAG, 0700 );
-#endif
 
-   if(errno != 0)
-   {
-      perror("nuke"); 
-      exit(1);
-   }
 
    /* Generate a size string based on the media size. example: 256M */
    humanize_number(mediaSize, 5, (uint64_t)size, "", 
       HN_AUTOSCALE, HN_B | HN_NOSPACE | HN_DECIMAL);
-   printf("Wiping %s: %ju (%s)\n", media, (intmax_t)size, mediaSize);
+   printf("Wiping %s: %ju bytes (%s)\n", media, (intmax_t)size, mediaSize);
    
    /* Dump random garbage to the write table */
    if(udef_nukelevel == NUKE_RANDOM_SLOW || udef_nukelevel == NUKE_RANDOM_FAST)
@@ -201,7 +191,27 @@ int nuke(media_t device)
    /* Begin write passes */
    for( pass = 1; pass <= udef_passes ; pass++ )
    {
-      lseek(fd, 0L, SEEK_SET);
+#ifdef __FreeBSD__
+      fd = open(media, O_RDWR | O_TRUNC | O_UFLAG | O_DIRECT, 0700 );
+#else
+      /* Linux no longer supports O_DIRECT */
+      fd = open(media, O_RDWR | O_TRUNC | O_UFLAG, 0700 );
+#endif
+      
+      if(errno != 0)
+      {
+         perror("nuke");
+         fprintf(stderr, "Skipping %s\n", media);
+         /* The reason we stopped exiting the program here is because other 
+          * devices still may  have to be wiped.  Just skip it */
+         break;
+      }      
+
+      if((lseek(fd, 0L, SEEK_SET)) != 0)
+      {
+         fprintf(stderr, "\nCould not seek to the beginning of the device.\n");
+         break;
+      }
 
       /* Determine how many writes to perform, and at what byte size */
       times = size / byteSize;
@@ -221,6 +231,8 @@ int nuke(media_t device)
             (intmax_t)((long double)bytes / ((long double)currentTime - (long double)startTime)), "", 
             HN_AUTOSCALE, HN_B | HN_NOSPACE | HN_DECIMAL);
 
+         printf("%s: ", mediashort);
+
          if(udef_passes > 1)
             printf("pass %d ", pass);
 
@@ -231,10 +243,8 @@ int nuke(media_t device)
                writeSize,
                (bytes / (long double)size) * 100L,
                writePerSecond,
-               0x0D
+               0x0D //ANSI carriage return
                );
-
-         retainer = -1;
 
          /* Recycle the write table with random garbage */
          if(udef_nukelevel == NUKE_RANDOM_SLOW)
@@ -248,17 +258,17 @@ int nuke(media_t device)
 
          /* Dump data to the device */
          bytesWritten = write(fd, wTable, byteSize); 
-         ++retainer;
+
+         if(bytesWritten != byteSize)
+            fprintf(stderr, "\nwrite() function is not returning the correct size.\n");
 
       } /* BLOCK WRITE */
       
       endTime = time(NULL);
-
+      close(fd);
    } /* PASSES */
 
    putchar('\n');
-   close(fd);
-
    return 0;
 }
 
@@ -575,7 +585,6 @@ int main(int argc, char* argv[])
    }
 
    int i = 0; 
-   int mt = 0;
 
    signal(SIGINT, cleanup);
    signal(SIGTERM, cleanup);
@@ -639,44 +648,13 @@ int main(int argc, char* argv[])
 
    do
    {
-      /* Holds the media type, and number. example: /dev/ad0 */
-      char media[BUFSIZ];
-         
-      /* Generate a device string based on the current interation*/
-#ifdef __FreeBSD__
-      sprintf(media, "/dev/%s%d", mediaList[mt], i);
-#else
-      sprintf(media, "/dev/%s%c", mediaList[mt], 'a' + i);
-#endif
-
-      /* Initialize the device's information */
-      media_t device = getMediaInfo(media);
-
-#ifdef __FreeBSD__
-/*
-      if((int64_t)size < 1L && strcmp(media, "/dev/ad0"));
-      {
-         sprintf(media, "/dev/%s%d", "ad", 4);
-      }
-*/
-#endif
-
-      if(device.usable == USABLE_MEDIA && i <= device_stats.total)
+      if(devices[i].usable == USABLE_MEDIA && i <= device_stats.total)
       {
          /* Pass control off to the nuker */
          nuke(devices[i]);
       }
       else
-      {
-         /* To prevent overrunning */
-         if(mediaList[mt] == NULL || mediaList[mt] == '\0')
-            break; 
-
-         /* mediaList iteration */
-         mt++;
-         /* Reset iteratior so that the next increment is zero */
-         i = -1;
-      }
+         break;
 
       i++;
 
@@ -693,6 +671,7 @@ void cleanup()
 {
    fprintf(stderr, "\nSignal caught, cleaning up...\n");
 
+#ifdef __FreeBSD__
    char terminalBuffer[2048];
    char* terminalType = getenv("TERM");
 
@@ -703,6 +682,10 @@ void cleanup()
 
    int columns = tgetnum("co");
    int col = 0;
+#else
+   int columns = 80;
+   int col = 0;
+#endif
 
    for(col = 0; col < columns; col++)
    {

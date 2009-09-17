@@ -46,7 +46,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <locale.h>
-#include <fts.h>
+//#include <fts.h>
 
 #include "human_readable.h"
 

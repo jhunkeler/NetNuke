@@ -4,7 +4,7 @@ LFLAGS=-lutil -ltermcap
 PACKAGE=netnuke
 
 all:
-	gcc $(SVNDEF) -o $(PACKAGE) $(DEFINES) $(CFLAGS) $(LFLAGS) netnuke.c  
+	cc -o $(PACKAGE) $(DEFINES) $(CFLAGS) $(LFLAGS) netnuke.c  
 	strip netnuke
 
 clean:

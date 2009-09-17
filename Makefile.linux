@@ -1,6 +1,11 @@
-CFLAGS=-Wall -pipe -O2 -funroll-loops
-OUTPUT=netnuke
+CFLAGS=-std=c99 -Wall -pipe -O2 
+DEFINES= 
+LFLAGS=-lutil -ltermcap
+PACKAGE=netnuke
 
 all:
-	gcc -o ${OUTPUT} -lutil ${CFLAGS} netnuke.c human_readable.c
+	cc -o $(PACKAGE) $(DEFINES) $(CFLAGS) $(LFLAGS) netnuke.c human_readable.c 
+	strip netnuke
 
+clean:
+	rm netnuke
