@@ -695,6 +695,7 @@ void cleanup()
    int columns = tgetnum("co");
    int col = 0;
 #else
+   /* It appears the termcap library under Linux does not function correctly */
    int columns = 80;
    int col = 0;
 #endif
