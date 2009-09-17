@@ -4,12 +4,12 @@
 /* Prototypes */
 void fillRandom(char buffer[], uint64_t length);
 void staticPattern() __attribute__((alias("fillRandom")));
-int32_t nuke(char* media, uint64_t size);
 uint64_t getSize(const char* media);
 void echoList(void);
 void usage(const char* cmd);
 void version_short();
 void version(const char* cmd);
+void cleanup();
 #ifndef __FreeBSD__
 int humanize_number(char *buf, size_t len, int64_t bytes,
           const char *suffix, int scale, int flags);
@@ -54,7 +54,10 @@ int humanize_number(char *buf, size_t len, int64_t bytes,
 #define NEEDNUM 4
 #define NEEDSTR 8
 
+#ifndef __FreeBSD__
 #define DISK_IDENT_SIZE BUFSIZ
+#endif
+
 #define USABLE_MEDIA 0
 
 /* Enumerated lists */
@@ -83,7 +86,8 @@ typedef struct MEDIA_T
    char nameshort[10];
    char ident[DISK_IDENT_SIZE];
 } media_t;
-media_t *buildMediaList();
+int32_t nuke(media_t device);
+void buildMediaList(media_t devices[]);
 media_t getMediaInfo(const char* media);
 
 

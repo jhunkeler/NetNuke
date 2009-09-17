@@ -21,6 +21,8 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <termcap.h>
+#include <signal.h>
 #include <string.h>
 #include <stdbool.h>
 #include <unistd.h>
@@ -84,7 +86,7 @@ const char sPattern[] = {
       "wt",  //Wangtek and Archive QIC-02/QIC-36
    };
 #else
-   const char* mediaList[4] = {
+   const char* mediaList[5] = {
       "hd",  //ATAPI
       "sd",  //SCSI
       "sg",  //SCSI Generic
@@ -138,8 +140,12 @@ void fillRandom(char buffer[], uint64_t length)
 
 }
 
-int nuke(char* media, uint64_t size)
+int nuke(media_t device)
 {
+   uint64_t size = device.size;
+   char media[BUFSIZ]; 
+   strncpy(media, device.name, strlen(device.name));
+
    /* test with 100MBs worth of data */
    if(udef_testmode == true)
       size = (1024 * 1024) * 100;
@@ -201,7 +207,7 @@ int nuke(char* media, uint64_t size)
 
       /* Determine how many writes to perform, and at what byte size */
       times = size / byteSize;
-
+      
       startTime = time(NULL);
       for( block = 0 ; block <= times; block++)
       {
@@ -221,13 +227,15 @@ int nuke(char* media, uint64_t size)
             printf("pass %d ", pass);
 
          /* Output our progress */
-         printf("\t%jd of %jd blocks    [ %s / %3.1Lf%% / %s/s ]\r", 
+         printf("\t%jd of %jd blocks    [ %s / %3.1Lf%% / %s/s ]%c", 
                block, 
                times,
                writeSize,
                (bytes / (long double)size) * 100L,
-               writePerSecond
+               writePerSecond,
+               0x0D
                );
+
          retainer = -1;
 
          /* Recycle the write table with random garbage */
@@ -256,7 +264,7 @@ int nuke(char* media, uint64_t size)
    return 0;
 }
 
-media_t *buildMediaList()
+void buildMediaList(media_t devices[])
 {
    device_stats.total = 0;
    device_stats.ide = 0;
@@ -278,38 +286,53 @@ media_t *buildMediaList()
 #endif
 
       media_t device = getMediaInfo(media);
+
 #ifdef __FreeBSD__
-      /* SATA checkpoint */
-/*
-      if((int64_t)size < 1L && (strcmp(media, "/dev/ad0") == 0))
-      {
-         printf("SATA checkpoint initialized.  IDE Channel 1 *may* be skipped!\n");
-         sprintf(media, "/dev/%s%d", "/dev/ad", 4); 
-      }
-*/
+      /* Account for SATA devices.  mediaList will always have IDE/SATA as position 0 */
+      if(device.usable != USABLE_MEDIA && mt == 0 && i > 5)
+         mt++;
 #endif
-      //printf("testing...\n");
-      /* Primative statistics collection */
+
+      /* Primative statistics collection, also in this case device.usable 
+       * must be explicitely checked */
       if(device.usable == USABLE_MEDIA) 
       {
-         printf("usable\n");
-         if(strstr(device.name, "ad") == 0 || strstr(device.name, "hd") == 0)
+         /* This is not the only way to do this.  Especially because it is NOT
+          * dynamic to the mediaList at all... */
+         if(strstr(device.name, "ad") == 0 || 
+               (strstr(device.name, "hd") == 0))
          {
             device_stats.ide++;
          }
-         else if(strstr(device.name, "da") == 0 || (device.usable && strstr(device.name, "sa") == 0))
+         else if(strstr(device.name, "da") == 0 || 
+               (device.usable && strstr(device.name, "sa") == 0))
          {
             device_stats.scsi++;
+         }
+         
+         device_stats.total = 
+            device_stats.ide + device_stats.scsi;
+
+         /* Assign device to the array of devices */
+         if(device_stats.total > 0)
+         {
+            devices[device_stats.total-1] = device;
+         }
+         else
+         {
+            device_stats.total = 0;
+            devices[device_stats.total] = device;
          }
       }
       else
       {
-         /* To prevent overrunning */
+         /* To prevent overrunning the list, causing a segfault */
          if(mediaList[mt] == NULL || mediaList[mt] == '\0')
             break; 
 
-         /* mediaList iteration */
+         /* Increment the mediaList iterator */
          mt++;
+
          /* Reset iterator so that the next increment is zero */
          i = -1;
       }
@@ -318,11 +341,7 @@ media_t *buildMediaList()
 
    } while( 1 );
    
-   device_stats.total = 
-      device_stats.ide + device_stats.scsi + device_stats.unknown;
 
-   printf("returning\n");
-   return devices;
 }
 
 
@@ -342,7 +361,6 @@ media_t getMediaInfo(const char* media)
    fd = open(media, O_RDONLY);
    if(fd < 0)
    {
-      //perror("getMediaInfo");
       /* Returns in an unusable state */
       return mi;
    }
@@ -375,45 +393,6 @@ media_t getMediaInfo(const char* media)
 
    /* Should be in a usuable state if it made it this far */
    return mi;
-}
-
-/* Function: getSize
- * Argument 1: Fully qualified path to device 
- * Return: Media size, or -1 on failure
- */
-uint64_t getSize(const char* media)
-{  
-   /* Media size */
-   uint64_t size;
-   /* Attempt to open the media read-only */
-   int fd = open(media, O_RDONLY);
-
-   if(fd)
-   {
-      /* Set media size */
-#ifdef __FreeBSD__
-      error = ioctl(fd, DIOCGMEDIASIZE, &size);
-#else
-      error = ioctl(fd, BLKGETSIZE, &size);
-      /* For Linux we must adjust the size returned, because we want bytes, not blocks */
-      size *= 512; 
-#endif
-   }
-   else
-      exit(1);
-
-   if(error != 0)
-   {
-      /* Errors will be completely ambiguous due to the nature of this
-       * program. */
-      return -1;
-   }
-
-   /* Close the media file descriptor */
-   close(fd);
-
-   /* Return the size of the media */
-   return size;
 }
 
 void usage(const char* cmd)
@@ -503,6 +482,7 @@ int filterArg(const char* key, char* value, short flags)
 
 int main(int argc, char* argv[])
 {
+   printf("\033[2J");
    int tok = 0;
 
    /* Static arguments that must happen first */
@@ -591,8 +571,14 @@ int main(int argc, char* argv[])
    int i = 0; 
    int mt = 0;
 
+   signal(SIGINT, cleanup);
+   signal(SIGTERM, cleanup);
+   signal(SIGABRT, cleanup);
+   signal(SIGILL, cleanup);
+
    version_short();
    putchar('\n');
+
    if(udef_verbose)
    {
       char* nlstr = {0};
@@ -615,16 +601,34 @@ int main(int argc, char* argv[])
             break;
        }
 
-       printf("Test mode: %s\n", udef_testmode ? "ENABLED" : "DISABLED");
-       printf("Block size: %d\n", udef_blocksize);
-       printf("Wipe method: %s\n", nlstr);
-       printf("Num. of passes: %u\n", udef_passes);
-       printf("Write mode: %cSYNC\n", udef_wmode ? 'A' : 0);
+       printf("Test mode:\t%s\n", udef_testmode ? "ENABLED" : "DISABLED");
+       printf("Block size:\t%d\n", udef_blocksize);
+       printf("Wipe method:\t%s\n", nlstr);
+       printf("Num. of passes:\t%u\n", udef_passes);
+       printf("Write mode:\t%cSYNC\n", udef_wmode ? 'A' : 0);
    }
 
-   buildMediaList();
-   printf("IDE Devices: %d\nSCSI Devices: %d\nUnknown Devices: %d\nTotal: %d\n", 
-         device_stats.ide, device_stats.scsi, device_stats.unknown, device_stats.total);
+   /* Allocate base memory for the device array */
+   devices = (media_t*)calloc(BUFSIZ, sizeof(media_t));
+   if(devices == NULL)
+   {
+      printf("Could not allocate memory for devices array.\n");
+      exit(1);
+   }
+
+   /* Fill the devices array */
+   buildMediaList(devices);
+
+   /* Allocate the correct amount of memory based on the total number of devices */
+   devices = (media_t*)realloc(devices, device_stats.total * sizeof(media_t));
+   if(devices == NULL)
+   {
+      printf("Could not reallocate memory for devices array.\n");
+      exit(1);
+   }
+
+   printf("IDE Devices:\t%d\nSCSI Devices:\t%d\nTotal Devices:\t%d\n", 
+         device_stats.ide, device_stats.scsi, device_stats.total);
    putchar('\n');
 
    do
@@ -651,13 +655,10 @@ int main(int argc, char* argv[])
 */
 #endif
 
-      if(device.usable)
+      if(device.usable == USABLE_MEDIA && i <= device_stats.total)
       {
-         /* We MUST use the int64_t cast.  Unsigned integers cannot have a negative value.
-          * Otherwise this loop would never end. */
-            printf("entering nuke");
-            nuke(device.name, device.size);
-            printf("exiting nuke");
+         /* Pass control off to the nuker */
+         nuke(devices[i]);
       }
       else
       {
@@ -675,7 +676,35 @@ int main(int argc, char* argv[])
 
    } while( 1 );
 
+   /* Free allocated memory */
+   free(devices);
+
    /* End */
    return 0;
 }
 
+void cleanup()
+{
+   fprintf(stderr, "\nSignal caught, cleaning up...\n");
+
+   char terminalBuffer[2048];
+   char* terminalType = getenv("TERM");
+
+   if(tgetent(terminalBuffer, terminalType) < 0)
+   {
+      fprintf(stderr, "Could not access termcap database.\n");
+   }
+
+   int columns = tgetnum("co");
+   int col = 0;
+
+   for(col = 0; col < columns; col++)
+   {
+      printf("%c", 0x20);
+   }
+   putchar('\n');
+
+   free(devices);
+
+   exit(2);
+}

@@ -1,6 +1,7 @@
-CFLAGS=-Wall -pipe -O2 
+CFLAGS=-std=c99 -Wall -pipe -O2 
+LFLAGS=-lutil -ltermcap
 OUTPUT=netnuke
 
 all:
-	cc -std=c99 -o ${OUTPUT} -lutil ${CFLAGS} netnuke.c 
+	cc -o ${OUTPUT} ${LFLAGS} ${CFLAGS} netnuke.c 
 
