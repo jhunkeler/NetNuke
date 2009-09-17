@@ -480,7 +480,8 @@ int filterArg(const char* key, char* value, short flags)
 
 int main(int argc, char* argv[])
 {
-   printf("\033[2J");
+   /* ANSI clear-screen sequence */
+   //printf("\033[2J");
    int tok = 0;
 
    /* Static arguments that must happen first */
@@ -564,6 +565,13 @@ int main(int argc, char* argv[])
          //exit(1);
          //break;
       }
+   }
+
+   /* Check for root privs before going any further */
+   if((getuid()) != 0)
+   {
+      fprintf(stderr, "You must be root first, sorry.\n");
+      exit(3);
    }
 
    int i = 0; 

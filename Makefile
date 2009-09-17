@@ -1,7 +1,11 @@
 CFLAGS=-std=c99 -Wall -pipe -O2 
+DEFINES= 
 LFLAGS=-lutil -ltermcap
-OUTPUT=netnuke
+PACKAGE=netnuke
 
 all:
-	cc -o ${OUTPUT} ${LFLAGS} ${CFLAGS} netnuke.c 
+	gcc $(SVNDEF) -o $(PACKAGE) $(DEFINES) $(CFLAGS) $(LFLAGS) netnuke.c  
+	strip netnuke
 
+clean:
+	rm netnuke
