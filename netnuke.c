@@ -173,8 +173,6 @@ int nuke(media_t device)
    if(udef_testmode == true)
           sprintf(media, "%s", "/tmp/testmode.img");
 
-
-
    /* Generate a size string based on the media size. example: 256M */
    humanize_number(mediaSize, 5, (uint64_t)size, "", 
       HN_AUTOSCALE, HN_B | HN_NOSPACE | HN_DECIMAL);
@@ -282,6 +280,9 @@ void buildMediaList(media_t devices[])
    int i = 0;
    int mt = 0;
 
+   if(udef_verbose)
+      printf("\n--Device List--\n");
+
    do
    {
       char media[BUFSIZ];
@@ -308,12 +309,13 @@ void buildMediaList(media_t devices[])
          /* This is not the only way to do this.  Especially because it is NOT
           * dynamic to the mediaList at all... */
          if(strstr(device.name, "ad") == 0 || 
-               (strstr(device.name, "hd") == 0))
+               strstr(device.name, "hd") == 0)
          {
             device_stats.ide++;
          }
-         else if(strstr(device.name, "da") == 0 || 
-               (device.usable && strstr(device.name, "sa") == 0))
+
+         if(strstr(device.name, "da") == 0 || 
+               strstr(device.name, "sd") == 0)
          {
             device_stats.scsi++;
          }
@@ -330,6 +332,15 @@ void buildMediaList(media_t devices[])
          {
             device_stats.total = 0;
             devices[device_stats.total] = device;
+         }
+
+         if(udef_verbose)
+         {
+#ifdef __FreeBSD__
+            printf("%s:\t%s:\t%jd bytes\n", device.nameshort, device.ident, device.size);
+#else
+            printf("%s:\t%jd bytes\n", device.nameshort, device.size);
+#endif    
          }
       }
       else
@@ -349,7 +360,8 @@ void buildMediaList(media_t devices[])
 
    } while( 1 );
    
-
+   if(udef_verbose)
+      putchar('\n');
 }
 
 
@@ -627,7 +639,7 @@ int main(int argc, char* argv[])
    devices = (media_t*)calloc(BUFSIZ, sizeof(media_t));
    if(devices == NULL)
    {
-      printf("Could not allocate memory for devices array.\n");
+     fprintf(stderr, "Could not allocate %d bytes of memory for devices array.\n", BUFSIZ * sizeof(media_t));
       exit(1);
    }
 
@@ -638,7 +650,7 @@ int main(int argc, char* argv[])
    devices = (media_t*)realloc(devices, device_stats.total * sizeof(media_t));
    if(devices == NULL)
    {
-      printf("Could not reallocate memory for devices array.\n");
+      printf("Could not reallocate %d bytes of memory for devices array.\n", device_stats.total * sizeof(media_t));
       exit(1);
    }
 
