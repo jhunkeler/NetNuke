@@ -43,8 +43,6 @@
 #include "netnuke.h"
 
 /* Global variables */
-static int64_t error;
-
 nukeLevel_t udef_nukelevel = NUKE_PATTERN; /* Static patterns is default */
 bool udef_verbose = false;
 bool udef_verbose_high = false;
