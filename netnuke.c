@@ -229,7 +229,7 @@ int nuke(media_t device)
             (intmax_t)((long double)bytes / ((long double)currentTime - (long double)startTime)), "", 
             HN_AUTOSCALE, HN_B | HN_NOSPACE | HN_DECIMAL);
 
-         printf("%s: ", mediashort);
+         printf("%s: ", (char*)&device.nameshort);
 
          if(udef_passes > 1)
             printf("pass %d ", pass);
@@ -314,7 +314,7 @@ void buildMediaList(media_t devices[])
             device_stats.ide++;
          }
 
-         if(strstr(device.name, "da") == 0 || 
+         else if(strstr(device.name, "da") == 0 || 
                strstr(device.name, "sd") == 0)
          {
             device_stats.scsi++;
@@ -400,9 +400,9 @@ media_t getMediaInfo(const char* media)
       mi.ident[0] = '\0';
 #endif
 
-   strncpy(mi.name, media, strlen(media));
-   strncpy(mi.nameshort, &media[5], strlen(media));
-   
+   memcpy(mi.name, media, strlen(media)+1);
+   memcpy(mi.nameshort, &media[5], strlen(media));
+
    /* Mark the media as usuable or unusable */
    if(mi.size > 0)
       mi.usable = USABLE_MEDIA;
@@ -660,7 +660,7 @@ int main(int argc, char* argv[])
 
    do
    {
-      if(devices[i].usable == USABLE_MEDIA && i <= device_stats.total)
+      if(devices[i].usable == USABLE_MEDIA && devices[i].name[0] != '\0' && i <= device_stats.total)
       {
          /* Pass control off to the nuker */
          nuke(devices[i]);
