@@ -298,8 +298,11 @@ void buildMediaList(media_t devices[])
 
 #ifdef __FreeBSD__
       /* Account for SATA devices.  mediaList will always have IDE/SATA as position 0 */
-      if(device.usable != USABLE_MEDIA && mt == 0 && i > 5)
-         mt++;
+      if(device.usable != USABLE_MEDIA && mt == 0 && i < 4)
+      {
+	i++;
+	continue;
+      }
 #endif
 
       /* Primative statistics collection, also in this case device.usable 

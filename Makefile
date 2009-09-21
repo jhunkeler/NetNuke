@@ -1,4 +1,4 @@
-CFLAGS=-std=c99 -Wall -pipe -O2 
+CFLAGS=-std=c99 -Wall -pipe -O2 -fomit-frame-pointer 
 DEFINES= 
 LFLAGS=-lutil -ltermcap
 PACKAGE=netnuke
