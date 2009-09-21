@@ -258,7 +258,7 @@ int nuke(media_t device)
          bytesWritten = write(fd, wTable, byteSize); 
 
          if(bytesWritten != byteSize)
-            fprintf(stderr, "\nwrite() function is not returning the correct size.\n");
+             fprintf(stderr, "%s: %s, while writing chunk %jd\n", device.nameshort, strerror(errno), block);
 
       } /* BLOCK WRITE */
       
@@ -298,7 +298,7 @@ void buildMediaList(media_t devices[])
 
 #ifdef __FreeBSD__
       /* Account for SATA devices.  mediaList will always have IDE/SATA as position 0 */
-      if(device.usable != USABLE_MEDIA && mt == 0 && i < 4)
+      if(device.usable != USABLE_MEDIA && mt == 0 && i < 255)
       {
 	i++;
 	continue;
