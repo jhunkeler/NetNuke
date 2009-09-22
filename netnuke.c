@@ -258,7 +258,10 @@ int nuke(media_t device)
          bytesWritten = write(fd, wTable, byteSize); 
 
          if(bytesWritten != byteSize)
-             fprintf(stderr, "%s: %s, while writing chunk %jd\n", device.nameshort, strerror(errno), block);
+         {
+            int64_t current = lseek(fd, 0L, SEEK_CUR);
+             fprintf(stderr, "%s: %s, while writing chunk %jd. seek position %jd\n", device.nameshort, strerror(errno), block, current);
+         }
 
       } /* BLOCK WRITE */
       
@@ -311,14 +314,14 @@ void buildMediaList(media_t devices[])
       {
          /* This is not the only way to do this.  Especially because it is NOT
           * dynamic to the mediaList at all... */
-         if(strstr(device.name, "ad") == 0 || 
-               strstr(device.name, "hd") == 0)
+         if(strstr(device.name, "ad") != NULL || 
+               strstr(device.name, "hd") != NULL)
          {
             device_stats.ide++;
          }
 
-         else if(strstr(device.name, "da") == 0 || 
-               strstr(device.name, "sd") == 0)
+         else if(strstr(device.name, "da") != NULL || 
+               strstr(device.name, "sd") != NULL)
          {
             device_stats.scsi++;
          }
