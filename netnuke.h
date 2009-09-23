@@ -15,6 +15,11 @@ int humanize_number(char *buf, size_t len, int64_t bytes,
           const char *suffix, int scale, int flags);
 #endif
 
+/* log.c */
+int logopen(const char* logfile);
+void logclose(void);
+int lwrite(char* format, ...);
+
 /* Defines */
 #define NETNUKE_VERSION_MAJOR 1
 #define NETNUKE_VERSION_MINOR 0
@@ -39,6 +44,7 @@ int humanize_number(char *buf, size_t len, int64_t bytes,
     You should have received a copy of the GNU General Public License\n\
     along with this program.  If not, see <http://www.gnu.org/licenses/>."
 
+#define MAX_SCAN 255
 /* Output update speed based on writes */
 #define RETAINER 0 
 

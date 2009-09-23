@@ -176,6 +176,7 @@ int nuke(media_t device)
    /* Generate a size string based on the media size. example: 256M */
    humanize_number(mediaSize, 5, (uint64_t)size, "", 
       HN_AUTOSCALE, HN_B | HN_NOSPACE | HN_DECIMAL);
+   lwrite("Wiping %s: %ju bytes (%s)\n", media, (intmax_t)size, mediaSize);
    printf("Wiping %s: %ju bytes (%s)\n", media, (intmax_t)size, mediaSize);
    
    /* Dump random garbage to the write table */
@@ -199,6 +200,7 @@ int nuke(media_t device)
       if(errno != 0)
       {
          perror("nuke");
+         lwrite("Skipping %s\n", media);
          fprintf(stderr, "Skipping %s\n", media);
          /* The reason we stopped exiting the program here is because other 
           * devices still may  have to be wiped.  Just skip it */
@@ -207,6 +209,7 @@ int nuke(media_t device)
 
       if((lseek(fd, 0L, SEEK_SET)) != 0)
       {
+         lwrite("%s: Could not seek to the beginning of the device.\n", media);
          fprintf(stderr, "\nCould not seek to the beginning of the device.\n");
          break;
       }
@@ -260,7 +263,19 @@ int nuke(media_t device)
          if(bytesWritten != byteSize)
          {
             int64_t current = lseek(fd, 0L, SEEK_CUR);
-             fprintf(stderr, "%s: %s, while writing chunk %jd. seek position %jd\n", device.nameshort, strerror(errno), block, current);
+
+            lwrite("%s: %s, while writing chunk %jd. seek position %jd\n", device.nameshort, strerror(errno), block, current);
+             
+            fprintf(stderr, "%s: %s, while writing chunk %jd. seek position %jd\n", device.nameshort, strerror(errno), block, current);
+
+            /* If it is a physical device error */
+            if(errno == EIO)
+            {
+               current += 1;
+               int64_t next = lseek(fd, current, SEEK_CUR);
+               lwrite("Jumping from byte %jd to %jd.\n", current, next);
+               fprintf(stderr, "Jumping from byte %jd to %jd.\n", current, next);
+            }
          }
 
       } /* BLOCK WRITE */
@@ -325,7 +340,12 @@ void buildMediaList(media_t devices[])
          {
             device_stats.scsi++;
          }
-         
+         else
+         {
+            /* This could be BADDDDDDDDDDDD, but I think we need it */
+            device_stats.scsi++;
+         }
+
          device_stats.total = 
             device_stats.ide + device_stats.scsi;
 
@@ -343,9 +363,11 @@ void buildMediaList(media_t devices[])
          if(udef_verbose)
          {
 #ifdef __FreeBSD__
-            printf("%s:\t%s:\t%jd bytes\n", device.nameshort, device.ident, device.size);
+   lwrite("%s:\t%s:\t%jd bytes\n", device.nameshort, device.ident, device.size);
+   printf("%s:\t%s:\t%jd bytes\n", device.nameshort, device.ident, device.size);
 #else
-            printf("%s:\t%jd bytes\n", device.nameshort, device.size);
+   lwrite("%s:\t%jd bytes\n", device.nameshort, device.size);
+   printf("%s:\t%jd bytes\n", device.nameshort, device.size);
 #endif    
          }
       }
@@ -602,6 +624,8 @@ int main(int argc, char* argv[])
       exit(3);
    }
 
+   logopen("/tmp/netnuke.log");
+   lwrite("Logging started\n");
    int i = 0; 
 
    signal(SIGINT, cleanup);
@@ -634,6 +658,12 @@ int main(int argc, char* argv[])
             break;
        }
 
+       lwrite("Test mode:\t%s\n", udef_testmode ? "ENABLED" : "DISABLED");
+       lwrite("Block size:\t%d\n", udef_blocksize);
+       lwrite("Wipe method:\t%s\n", nlstr);
+       lwrite("Num. of passes:\t%u\n", udef_passes);
+       lwrite("Write mode:\t%cSYNC\n", udef_wmode ? 'A' : ' ');
+
        printf("Test mode:\t%s\n", udef_testmode ? "ENABLED" : "DISABLED");
        printf("Block size:\t%d\n", udef_blocksize);
        printf("Wipe method:\t%s\n", nlstr);
@@ -645,7 +675,7 @@ int main(int argc, char* argv[])
    devices = (media_t*)calloc(BUFSIZ, sizeof(media_t));
    if(devices == NULL)
    {
-     fprintf(stderr, "Could not allocate %d bytes of memory for devices array.\n", BUFSIZ * sizeof(media_t));
+     printf("Could not allocate %d bytes of memory for devices array.\n", BUFSIZ * sizeof(media_t));
       exit(1);
    }
 
@@ -656,9 +686,14 @@ int main(int argc, char* argv[])
    devices = (media_t*)realloc(devices, device_stats.total * sizeof(media_t));
    if(devices == NULL)
    {
+      lwrite("Could not reallocate %d bytes of memory for devices array.\n", device_stats.total * sizeof(media_t));
       printf("Could not reallocate %d bytes of memory for devices array.\n", device_stats.total * sizeof(media_t));
       exit(1);
    }
+
+   lwrite("IDE Devices:\t%d\n", device_stats.ide);
+   lwrite("SCSI Devices:\t%d\n", device_stats.scsi);
+   lwrite("Total Devices:\t%d\n", device_stats.total); 
 
    printf("IDE Devices:\t%d\nSCSI Devices:\t%d\nTotal Devices:\t%d\n", 
          device_stats.ide, device_stats.scsi, device_stats.total);
@@ -680,6 +715,9 @@ int main(int argc, char* argv[])
 
    /* Free allocated memory */
    free(devices);
+   
+   lwrite("Logging ended\n");
+   logclose();
 
    /* End */
    return 0;
@@ -687,6 +725,7 @@ int main(int argc, char* argv[])
 
 void cleanup()
 {
+   lwrite("Signal caught, cleaning up...\n");
    fprintf(stderr, "\nSignal caught, cleaning up...\n");
 
 #ifdef __FreeBSD__
@@ -695,6 +734,7 @@ void cleanup()
 
    if(tgetent(terminalBuffer, terminalType) < 0)
    {
+      lwrite("Could not access termcap database.\n");
       fprintf(stderr, "Could not access termcap database.\n");
    }
 
@@ -713,6 +753,9 @@ void cleanup()
    putchar('\n');
 
    free(devices);
+
+   lwrite("Logging ended\n");
+   logclose();
 
    exit(2);
 }
