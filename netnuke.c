@@ -143,8 +143,8 @@ int nuke(media_t device)
    uint64_t size = device.size;
    char media[BUFSIZ]; 
    char mediashort[BUFSIZ];
-   strncpy(media, device.name, strlen(device.name));
-   strncpy(mediashort, device.nameshort, strlen(device.nameshort));
+   memcpy(media, device.name, strlen(device.name)+1);
+   memcpy(mediashort, device.nameshort, strlen(device.nameshort));
 
    /* test with 100MBs worth of data */
    if(udef_testmode == true)
