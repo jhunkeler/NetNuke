@@ -25,7 +25,6 @@
 #include <time.h>
 #include <ctype.h>
 
-
 FILE* loutfile;
 static clock_t ltime_start;
 static clock_t ltime_current;

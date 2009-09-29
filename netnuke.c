@@ -50,6 +50,7 @@ int8_t udef_wmode = 0; /* O_SYNC is default */
 int32_t udef_passes = 1;
 bool udef_testmode = true; /* Test mode should always be enabled by default. */
 int32_t udef_blocksize = 512; /* 1 block = 512 bytes*/
+bool skipSignal = false;
 
 media_t *devices;
 mediastat_t device_stats;
@@ -222,6 +223,7 @@ int nuke(media_t device)
       {
          currentTime = time(NULL);
          long double bytes = (float)(size / times * block);
+         long double percent = (bytes / (long double) size) * 100L;
 
 	 /* Generate a size string based on bytes written. example: 256M */
 	 humanize_number(writeSize, 5,
@@ -242,10 +244,30 @@ int nuke(media_t device)
                block, 
                times,
                writeSize,
-               (bytes / (long double)size) * 100L,
+               percent,
                writePerSecond,
                0x0D //ANSI carriage return
                );
+
+         if(udef_verbose)
+         {
+            
+            /* I'd like to know of a better way to do this */
+            if(percent == 0.0 ||
+               percent == 10.0 ||
+               percent == 20.0 ||
+               percent == 30.0 ||
+               percent == 40.0 ||
+               percent == 50.0 ||
+               percent == 60.0 ||
+               percent == 70.0 ||
+               percent == 80.0 ||
+               percent == 90.0 ||
+               percent == 100.0)
+            {
+               lwrite("%s progress: %3.0Lf percent\n", media, percent);
+            }
+         }
 
          /* Recycle the write table with random garbage */
          if(udef_nukelevel == NUKE_RANDOM_SLOW)
@@ -257,6 +279,18 @@ int nuke(media_t device)
              break;
          }
 
+         /* Poll for the signal to skip the device */
+         if(skipSignal == true)
+         {
+            fflush(stdout);
+
+            clearline();
+            lwrite("Skipping device %s...\n", media);
+            fprintf(stderr, "Skipping device %s...\n", media);
+            skipSignal = false;
+            break;
+         }
+
          /* Dump data to the device */
          bytesWritten = write(fd, wTable, byteSize); 
 
@@ -264,9 +298,21 @@ int nuke(media_t device)
          {
             int64_t current = lseek(fd, 0L, SEEK_CUR);
 
-            lwrite("%s: %s, while writing chunk %jd. seek position %jd\n", device.nameshort, strerror(errno), block, current);
-             
-            fprintf(stderr, "%s: %s, while writing chunk %jd. seek position %jd\n", device.nameshort, strerror(errno), block, current);
+            /* Usually caused if we are not using a blocksize that is a multiple of the devices sector size */
+            if(errno == EINVAL)
+            {
+               lwrite("Possible invalid block size defined!  Skipping...\n");
+               fprintf(stderr, "Possible invalid block (%jd) size defined! Skipping...\n", byteSize);
+               break;
+            }
+
+            /* If the device resets */
+            if(errno == ENXIO)
+            {
+               lwrite("%s: Lost device at seek position %jd.  ***Manual destruction is necessary***\n", device.nameshort, current);
+               fprintf(stderr, "%s: Lost device at seek position %jd.  ***Manual destruction is necessary***\n", device.nameshort, current);
+               break;
+            }
 
             /* If it is a physical device error */
             if(errno == EIO)
@@ -276,6 +322,11 @@ int nuke(media_t device)
                lwrite("Jumping from byte %jd to %jd.\n", current, next);
                fprintf(stderr, "Jumping from byte %jd to %jd.\n", current, next);
             }
+
+            lwrite("%s: %s, while writing chunk %jd. seek position %jd\n", device.nameshort, strerror(errno), block, current);
+            fprintf(stderr, "%s: %s, while writing chunk %jd. seek position %jd\n", device.nameshort, strerror(errno), block, current);
+
+            errno = 0; /* Reset the error code so it doesn't fill up the screen */
          }
 
       } /* BLOCK WRITE */
@@ -309,17 +360,25 @@ void buildMediaList(media_t devices[])
 #ifdef __FreeBSD__
       sprintf(media, "/dev/%s%d", mediaList[mt], i);
 #else
+      /* I want to note that SOME devices under linux do not follow this convention */
       sprintf(media, "/dev/%s%c", mediaList[mt], 'a' + i);
 #endif
 
       media_t device = getMediaInfo(media);
 
 #ifdef __FreeBSD__
-      /* Account for SATA devices.  mediaList will always have IDE/SATA as position 0 */
-      if(device.usable != USABLE_MEDIA && mt == 0 && i < 255)
+      /* Account for SATA devices (FORCED).  mediaList will always have IDE/SATA as position 0 */
+      if(device.usable != USABLE_MEDIA && mt == 0 && i < MAX_SCAN)
       {
 	i++;
 	continue;
+      }
+
+      /* All other devices are scanned */
+      if(device.usable != USABLE_MEDIA && i < MAX_SCAN)
+      {
+         i++;
+         continue;
       }
 #endif
 
@@ -342,7 +401,7 @@ void buildMediaList(media_t devices[])
          }
          else
          {
-            /* This could be BADDDDDDDDDDDD, but I think we need it */
+            /* This could be BADDDDDDDDDDDD if there is a hiccup, but I think we need it */
             device_stats.scsi++;
          }
 
@@ -467,12 +526,7 @@ void usage(const char* cmd)
 
 void version_short()
 {
-    printf("NetNuke v%d.%d-%s\nCopyright (C) 2009  %s <%s>\n\
-This software is licensed under %sv%d\n",
-	NETNUKE_VERSION_MAJOR, NETNUKE_VERSION_MINOR,
-	NETNUKE_VERSION_REVISION, NETNUKE_AUTHOR, 
-	NETNUKE_AUTHOR_EMAIL, NETNUKE_LICENSE_TYPE,
-	NETNUKE_LICENSE_VERSION);
+    printf(NETNUKE_VERSION_STRING);
 }
 
 void version(const char* cmd)
@@ -531,7 +585,8 @@ int filterArg(const char* key, char* value, short flags)
 int main(int argc, char* argv[])
 {
    /* ANSI clear-screen sequence */
-   //printf("\033[2J");
+   printf("\033[2J");
+
    int tok = 0;
 
    /* Static arguments that must happen first */
@@ -625,9 +680,10 @@ int main(int argc, char* argv[])
    }
 
    logopen("/tmp/netnuke.log");
+   lwrite(NETNUKE_VERSION_STRING);
    lwrite("Logging started\n");
-   int i = 0; 
 
+   signal(SIGUSR1, skip);
    signal(SIGINT, cleanup);
    signal(SIGTERM, cleanup);
    signal(SIGABRT, cleanup);
@@ -698,7 +754,8 @@ int main(int argc, char* argv[])
    printf("IDE Devices:\t%d\nSCSI Devices:\t%d\nTotal Devices:\t%d\n", 
          device_stats.ide, device_stats.scsi, device_stats.total);
    putchar('\n');
-
+   
+   int i = 0;
    do
    {
       if(devices[i].usable == USABLE_MEDIA && devices[i].name[0] != '\0' && i <= device_stats.total)
@@ -723,11 +780,8 @@ int main(int argc, char* argv[])
    return 0;
 }
 
-void cleanup()
+void clearline()
 {
-   lwrite("Signal caught, cleaning up...\n");
-   fprintf(stderr, "\nSignal caught, cleaning up...\n");
-
 #ifdef __FreeBSD__
    char terminalBuffer[2048];
    char* terminalType = getenv("TERM");
@@ -750,12 +804,30 @@ void cleanup()
    {
       printf("%c", 0x20);
    }
-   putchar('\n');
 
+   putchar('\n');
+}
+
+void cleanup()
+{
+   lwrite("Signal caught, cleaning up...\n");
+   fprintf(stderr, "\nSignal caught, cleaning up...\n");
+
+   clearline();
    free(devices);
 
    lwrite("Logging ended\n");
    logclose();
 
    exit(2);
+}
+
+void skip()
+{
+   clearline();
+   lwrite("Skip signal recieved...\n");
+   fprintf(stderr, "Skip signal recieved...\n");
+
+   /* This boolean is referenced in the nuke() function */
+   skipSignal = true;
 }

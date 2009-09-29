@@ -7,9 +7,11 @@ void staticPattern() __attribute__((alias("fillRandom")));
 uint64_t getSize(const char* media);
 void echoList(void);
 void usage(const char* cmd);
-void version_short();
+void version_short(void);
 void version(const char* cmd);
+void clearline(void);
 void cleanup();
+void skip();
 #ifndef __FreeBSD__
 int humanize_number(char *buf, size_t len, int64_t bytes,
           const char *suffix, int scale, int flags);
@@ -43,6 +45,13 @@ int lwrite(char* format, ...);
     GNU General Public License for more details.\n\n\
     You should have received a copy of the GNU General Public License\n\
     along with this program.  If not, see <http://www.gnu.org/licenses/>."
+
+#define NETNUKE_VERSION_STRING "NetNuke v%d.%d-%s\nCopyright (C) 2009  %s <%s>\n\
+This software is licensed under %sv%d\n",\
+        NETNUKE_VERSION_MAJOR, NETNUKE_VERSION_MINOR,\
+        NETNUKE_VERSION_REVISION, NETNUKE_AUTHOR,\
+        NETNUKE_AUTHOR_EMAIL, NETNUKE_LICENSE_TYPE,\
+        NETNUKE_LICENSE_VERSION 
 
 #define MAX_SCAN 255
 /* Output update speed based on writes */
