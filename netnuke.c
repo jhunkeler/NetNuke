@@ -322,6 +322,13 @@ int nuke(media_t device)
                lwrite("Jumping from byte %jd to %jd.\n", current, next);
                fprintf(stderr, "Jumping from byte %jd to %jd.\n", current, next);
             }
+            
+            if(errno == ENOSPC)
+            {
+               lwrite("%s: No space left on device.  seek position %jd\n", device.nameshort, current);
+               fprintf(stderr, "%s: No space left on device.  seek position %jd\n", device.nameshort, current);
+               break;
+            }
 
             lwrite("%s: %s, while writing chunk %jd. seek position %jd\n", device.nameshort, strerror(errno), block, current);
             fprintf(stderr, "%s: %s, while writing chunk %jd. seek position %jd\n", device.nameshort, strerror(errno), block, current);
@@ -679,7 +686,7 @@ int main(int argc, char* argv[])
       exit(3);
    }
 
-   logopen("/tmp/netnuke.log");
+   logopen("/var/log/netnuke.log");
    lwrite(NETNUKE_VERSION_STRING);
    lwrite("Logging started\n");
 
