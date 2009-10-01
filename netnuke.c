@@ -159,6 +159,7 @@ int nuke(media_t device)
    int32_t pass;
    uint64_t byteSize = udef_blocksize;
    uint64_t bytesWritten = 0L;
+   uint32_t  percent_retainer = 0, percent_retainer_watch = 0;
    uint64_t times, block;
    char wTable[byteSize];
    uint32_t startTime, currentTime, endTime; 
@@ -219,6 +220,7 @@ int nuke(media_t device)
       times = size / byteSize;
       
       startTime = time(NULL);
+      
       for( block = 0 ; block <= times; block++)
       {
          currentTime = time(NULL);
@@ -251,22 +253,12 @@ int nuke(media_t device)
 
          if(udef_verbose)
          {
-            
-            /* I'd like to know of a better way to do this */
-            if(percent == 0.0 ||
-               percent == 10.0 ||
-               percent == 20.0 ||
-               percent == 30.0 ||
-               percent == 40.0 ||
-               percent == 50.0 ||
-               percent == 60.0 ||
-               percent == 70.0 ||
-               percent == 80.0 ||
-               percent == 90.0 ||
-               percent == 100.0)
+            percent_retainer =  (uint32_t)percent / 10;
+            if(percent_retainer_watch < percent_retainer)
             {
                lwrite("%s progress: %3.0Lf percent\n", media, percent);
             }
+            percent_retainer_watch = percent_retainer;
          }
 
          /* Recycle the write table with random garbage */
