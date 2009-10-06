@@ -518,7 +518,7 @@ void usage(const char* cmd)
    printf("--disable-test             Disables test-mode, and allows write operations\n");
    printf("--block-size n    -b  n    Blocks at once\n");
    printf("--verbose         -v\n");
-   printf("--verbose-high    -v       Debug level verbosity\n");
+   printf("--verbose-high    -vv       Debug level verbosity\n");
    printf("--version         -V\n");
    putchar('\n');
 }
