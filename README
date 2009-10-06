@@ -9,12 +9,11 @@ EMAIL:   jhunk@stsci.edu, jhunkeler@gmail.com
 BUGS
 ----
 
-- SATA devices are not supported on BSD until code can be implemented to fix 
-a device iteration failure.  /dev/ad0 is the start of IDE.  /dev/ad4 is the 
-start of SATA.  Linux should remain OK.
+- SCSI devices require a larger block size to wipe at any decent speed.  64 kilobytes (-bs 65536) works well. 
+  The cause of this problem is unknown.  IDE devices wipe at the correctly speed based on a given block size.
+  I also recommend using a minimum of 2 passes (-p 2) at this block size.
 
-- If a SCSI bus failure occurs, NetNuke does not know to skip its current
-device (yet).
+Submissions via email would help greatly.
 
 
 OPERATING SYSTEMS SUPPORTED
@@ -28,6 +27,44 @@ BSD:
 Linux:
 	2.4 - Not Tested, and may not work
 	2.6 - Works, but needs more testing
+
+GENERAL INFORMATION
+-------------------
+
+NetNuke is a custom build of FreeBSD 7.2-RELEASE that resides entirely in a memory filesystem.  Minimal modification
+should be needed to boot NetNuke over PXE (in case you're thinking about it).
+
+The application itself is written entirely in C, and mostly from scratch.  Only one large chunk of code was pulled 
+from NetBSD's libutil.  Linux support may be dropped in order to clean up the code in the coming weeks because FreeBSD's 
+SCSI subsystem is far superior to Linux's implementation.  SUN Solaris support on the other hand may make an appearance 
+soon depending on the demand to natively wipe their media.
+
+Just remember that NetNuke was designed to DESTROY DATA.  There are no failsafes in place to preserve your precious bits.  
+The only thing that stands between you and the total annihilation of your data is the "--disable-test" flag.  What that
+said, please use NetNuke responsibly.  Anything attached to the machine prior to running the program will be DESTROYED.
+
+
+TIPS
+----
+
+1. /usr/bin/nn has no user confirmation routine.  Be sure that your data is backed up BEFORE you run this command.
+
+2. Alt+F[1-7] are virtual terminals.  Login as "root" (and the there is no password).
+
+3. To reset/rescan the SCSI bus:
+   #  camcontrol reset all
+   #  camcontrol rescan all
+
+4. To cold swap an IDE device:
+   #  atacontrol detach 0     # <- First channel
+   #  (Remove the old device, and put the new one in)
+   #  atacontrol attach 0
+
+5. Once NetNuke has loaded the filesystem completely into memory you may remove the boot media.
+
+6. NetNuke will attempt to automatically skip a failed device.  If this fails to work, you can manually skip the current 
+   device by issuing the command (from a virtual terminal):
+   #  killall -SIGUSR1 netnuke
 
 
 OPTION REFERENCE
