@@ -51,7 +51,7 @@ int32_t udef_passes = 1;
 bool udef_testmode = true; /* Test mode should always be enabled by default. */
 int32_t udef_blocksize = 512; /* 1 block = 512 bytes*/
 bool skipSignal = false;
-
+int O_UFLAG = 0;
 media_t *devices;
 mediastat_t device_stats;
 
@@ -81,6 +81,7 @@ const char sPattern[] = {
       "isp", //QLogic
       "dpt", //DPT RAID
       "amr", //AMI MegaRAID
+      "amrd" //AMI MegaRAID Disk
       "mlx", //Mylex DAC960 RAID
       "wt",  //Wangtek and Archive QIC-02/QIC-36
    };
@@ -139,6 +140,30 @@ void fillRandom(char buffer[], uint64_t length)
 
 }
 
+int open_device(const char* media)
+{
+   int fd = 0;
+#ifdef __FreeBSD__
+      fd = open(media, O_RDWR | O_TRUNC | O_UFLAG | O_DIRECT, 0700 );
+#else
+      /* Linux no longer supports O_DIRECT */
+      fd = open(media, O_RDWR | O_TRUNC | O_UFLAG, 0700 );
+#endif
+      return fd;
+}
+
+int recycle_device(const char *media, int fd)
+{
+   int fdtmp = fd;
+   if(fdtmp < 1)
+      return -1;
+
+   close(fd);
+   fdtmp = open_device(media);
+   return fdtmp;
+}
+
+
 int nuke(media_t device)
 {
    uint64_t size = device.size;
@@ -147,15 +172,14 @@ int nuke(media_t device)
    memcpy(media, device.name, strlen(device.name)+1);
    memcpy(mediashort, device.nameshort, strlen(device.nameshort));
 
-   /* test with 100MBs worth of data */
+   /* test with 10MBs worth of data */
    if(udef_testmode == true)
-      size = (1024 * 1024) * 100;
+      size = (1024 * 1024) * 10;
    
    errno = 0;
    char mediaSize[BUFSIZ];
    char writeSize[BUFSIZ];
    char writePerSecond[BUFSIZ];
-   int fd;
    int32_t pass;
    uint64_t byteSize = udef_blocksize;
    uint64_t bytesWritten = 0L;
@@ -171,7 +195,7 @@ int nuke(media_t device)
    }
 
    /* Set the IO mode */
-   int O_UFLAG = udef_wmode ? O_ASYNC : O_SYNC;
+   O_UFLAG = udef_wmode ? O_ASYNC : O_SYNC;
    if(udef_testmode == true)
           sprintf(media, "%s", "/tmp/testmode.img");
 
@@ -192,13 +216,22 @@ int nuke(media_t device)
    /* Begin write passes */
    for( pass = 1; pass <= udef_passes ; pass++ )
    {
-#ifdef __FreeBSD__
-      fd = open(media, O_RDWR | O_TRUNC | O_UFLAG | O_DIRECT, 0700 );
-#else
-      /* Linux no longer supports O_DIRECT */
-      fd = open(media, O_RDWR | O_TRUNC | O_UFLAG, 0700 );
-#endif
-      
+      /* Re-initialize byteSize (block size) for each pass in case an error condition has modified it */
+      byteSize = udef_blocksize;
+
+      if(udef_testmode)
+         O_UFLAG |= O_CREAT;
+
+      int fd = open_device(media);
+      fd = recycle_device(media, fd);
+      //fd = open(media, O_RDWR | O_TRUNC | O_UFLAG | O_DIRECT, 0700 );
+                
+/*      if(open_device_err > 0)
+      {
+         lwrite("nuke open_device: %s\n", strerror(open_device_err));
+         perror("nuke");
+      }
+  */    
       if(errno != 0)
       {
          perror("nuke");
@@ -239,7 +272,10 @@ int nuke(media_t device)
          printf("%s: ", (char*)&device.nameshort);
 
          if(udef_passes > 1)
+         {
             printf("pass %d ", pass);
+            lwrite("pass %d\n", pass);
+         }
 
          /* Output our progress */
          printf("\t%jd of %jd blocks    [ %s / %3.1Lf%% / %s/s ]%c", 
@@ -248,7 +284,7 @@ int nuke(media_t device)
                writeSize,
                percent,
                writePerSecond,
-               0x0D //ANSI carriage return
+               '\r' //ANSI carriage return
                );
 
          if(udef_verbose)
@@ -293,9 +329,26 @@ int nuke(media_t device)
             /* Usually caused if we are not using a blocksize that is a multiple of the devices sector size */
             if(errno == EINVAL)
             {
-               lwrite("Possible invalid block size defined!  Skipping...\n");
-               fprintf(stderr, "Possible invalid block (%jd) size defined! Skipping...\n", byteSize);
-               break;
+               lwrite("Possible invalid block size (%jd) defined!  Attempting correction...\n", byteSize);
+               fprintf(stderr, "Possible invalid block size (%jd) defined! Attempting correction...\n", byteSize);
+               
+               byteSize = 512;
+
+               lwrite("Block size is now %jd.\n", byteSize);
+               fprintf(stderr, "Block size is now %jd.\n", byteSize);
+
+               if((recycle_device(media, fd)) == 0)
+               {
+                  lwrite("Recycling device %s succeeded.\n", media);
+                  fprintf(stderr, "Recycling device %s succeeded.\n", media);
+                  lseek(fd, current, SEEK_SET);
+               }
+               else
+               {
+                  lwrite("Recycling device %s failed. Skipping...\n", media);
+                  fprintf(stderr, "Recycling device %s failed. Skipping...\n", media);
+                  break;
+               }
             }
 
             /* If the device resets */
@@ -310,9 +363,14 @@ int nuke(media_t device)
             if(errno == EIO)
             {
                current += 1;
-               int64_t next = lseek(fd, current, SEEK_CUR);
+               
+               int64_t next = lseek(fd, current, SEEK_SET);
                lwrite("Jumping from byte %jd to %jd.\n", current, next);
                fprintf(stderr, "Jumping from byte %jd to %jd.\n", current, next);
+
+               int64_t final = lseek(fd, current, SEEK_SET);
+               lwrite("Landed on byte %jd.\n", final);
+               fprintf(stderr, "Landed on byte %jd.\n", final);
             }
             
             if(errno == ENOSPC)
@@ -325,7 +383,8 @@ int nuke(media_t device)
             lwrite("%s: %s, while writing chunk %jd. seek position %jd\n", device.nameshort, strerror(errno), block, current);
             fprintf(stderr, "%s: %s, while writing chunk %jd. seek position %jd\n", device.nameshort, strerror(errno), block, current);
 
-            errno = 0; /* Reset the error code so it doesn't fill up the screen */
+            /* Reset the error code so it doesn't fill up the screen */
+            errno = 0; 
          }
 
       } /* BLOCK WRITE */
@@ -505,20 +564,20 @@ void usage(const char* cmd)
 {
    printf("usage: %s [options] ...\n", cmd);
    printf("--help            -h       This message\n");
-   printf("--write-mode s    -w  s    Valid values:\n\
+   printf("--write-mode s    -w  n    Valid values:\n\
                               0: Synchronous (default)\n\
                               1: Asynchronous\n");
    printf("--nuke-level n    -nl n    Varying levels of destruction:\n\
                               0: Zero out (quick wipe)\n\
-                              1: Static patterns (0xA, 0xB, ...)\n\
-                              2: Fast random (single random buffer across media)\n\
-                              3: Slow random (regenerate random buffer)\n\
+                              1: Static patterns (0xA, 0xB, ...) (default)\n\
+                              2: Fast random (single-random buffer)\n\
+                              3: Slow random (muli-random buffer)\n\
                               4: Ultra-slow re-writing method\n");
-   printf("--passes n        -p  n    Number of wipes to perform on a single device\n");
-   printf("--disable-test             Disables test-mode, and allows write operations\n");
    printf("--block-size n    -b  n    Blocks at once\n");
-   printf("--verbose         -v\n");
-   printf("--verbose-high    -vv       Debug level verbosity\n");
+   printf("--passes n        -p  n    Number of passes to perform on a single device\n");
+   printf("--disable-test             Disables test-mode, and allows write operations\n");
+   printf("--verbose         -v       Extra device information\n");
+   printf("--verbose-high    -vv      Debug level verbosity\n");
    printf("--version         -V\n");
    putchar('\n');
 }
@@ -652,6 +711,12 @@ int main(int argc, char* argv[])
       }
       if(ARGMATCH("--disable-test"))
       {
+         if((getgid()) != 0)
+         {
+            fprintf(stderr, "You are not root.  I will not disable testmode.\nExiting.\n");
+            exit(3);
+         }
+
          udef_testmode = false;
       }
       if(ARGMATCH("--block-size") || ARGMATCH("-b"))
@@ -674,7 +739,7 @@ int main(int argc, char* argv[])
    /* Check for root privs before going any further */
    if((getuid()) != 0)
    {
-      fprintf(stderr, "You must be root first, sorry.\n");
+      fprintf(stdout, "Only root may execute NetNuke, sorry.\n");
       exit(3);
    }
 

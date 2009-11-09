@@ -5,6 +5,9 @@
 void fillRandom(char buffer[], uint64_t length);
 void staticPattern() __attribute__((alias("fillRandom")));
 uint64_t getSize(const char* media);
+int open_device(const char *media);
+int close_device(int fd);
+//int recycle_device(const char* media, int fd);
 void echoList(void);
 void usage(const char* cmd);
 void version_short(void);
@@ -53,6 +56,7 @@ This software is licensed under %sv%d\n",\
         NETNUKE_AUTHOR_EMAIL, NETNUKE_LICENSE_TYPE,\
         NETNUKE_LICENSE_VERSION 
 
+/* Per iteration of devices, how many should we test for */
 #define MAX_SCAN 255
 /* Output update speed based on writes */
 #define RETAINER 0 
