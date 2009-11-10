@@ -63,7 +63,11 @@ const char sPattern[] = {
 	0xA3, 0xB3, 0xC3, 0xD3, 0xE3, 0xF3
 };
 
-/* List of media types that we can nuke */
+/* List of media types that we can nuke.
+ * Also note that if the device is not "supported" by this list you can
+ * create a soft-symlink TO a device that is.
+ *
+ * ex: ln -sf /dev/mtd0 /dev/sa0 */
 #ifdef __FreeBSD__
    const char* mediaList[18] = {
       "ad",  //ATAPI
@@ -149,16 +153,17 @@ int open_device(const char* media)
       /* Linux no longer supports O_DIRECT */
       fd = open(media, O_RDWR | O_TRUNC | O_UFLAG, 0700 );
 #endif
-      return fd;
+
+   return fd;
 }
 
 int recycle_device(const char *media, int fd)
 {
    int fdtmp = fd;
-   if(fdtmp < 1)
+   if(!fdtmp)
       return -1;
 
-   close(fd);
+   close(fdtmp);
    fdtmp = open_device(media);
    return fdtmp;
 }
@@ -216,22 +221,22 @@ int nuke(media_t device)
    /* Begin write passes */
    for( pass = 1; pass <= udef_passes ; pass++ )
    {
-      /* Re-initialize byteSize (block size) for each pass in case an error condition has modified it */
+      /* Re-initialize byteSize (block size) for each pass in case an 
+       * error condition has modified it */
       byteSize = udef_blocksize;
 
       if(udef_testmode)
          O_UFLAG |= O_CREAT;
 
       int fd = open_device(media);
-      fd = recycle_device(media, fd);
-      //fd = open(media, O_RDWR | O_TRUNC | O_UFLAG | O_DIRECT, 0700 );
                 
-/*      if(open_device_err > 0)
+      if(!fd)
       {
-         lwrite("nuke open_device: %s\n", strerror(open_device_err));
-         perror("nuke");
+         lwrite("nuke open_device: %s\n", strerror(fd));
+         fprintf(stderr, "nuke open_device: %s\n", strerror(fd));
+         break;
       }
-  */    
+
       if(errno != 0)
       {
          perror("nuke");
@@ -326,7 +331,8 @@ int nuke(media_t device)
          {
             int64_t current = lseek(fd, 0L, SEEK_CUR);
 
-            /* Usually caused if we are not using a blocksize that is a multiple of the devices sector size */
+            /* Usually caused if we are not using a blocksize that is a 
+             * multiple of the devices sector size */
             if(errno == EINVAL)
             {
                lwrite("Possible invalid block size (%jd) defined!  Attempting correction...\n", byteSize);
@@ -336,8 +342,9 @@ int nuke(media_t device)
 
                lwrite("Block size is now %jd.\n", byteSize);
                fprintf(stderr, "Block size is now %jd.\n", byteSize);
-
-               if((recycle_device(media, fd)) == 0)
+               
+               close(fd);
+               if((fd = open_device(media)) > -1)
                {
                   lwrite("Recycling device %s succeeded.\n", media);
                   fprintf(stderr, "Recycling device %s succeeded.\n", media);
@@ -362,13 +369,11 @@ int nuke(media_t device)
             /* If it is a physical device error */
             if(errno == EIO)
             {
-               current += 1;
-               
-               int64_t next = lseek(fd, current, SEEK_SET);
+               int64_t next = lseek(fd, current + 1, SEEK_SET);
                lwrite("Jumping from byte %jd to %jd.\n", current, next);
                fprintf(stderr, "Jumping from byte %jd to %jd.\n", current, next);
 
-               int64_t final = lseek(fd, current, SEEK_SET);
+               int64_t final = lseek(fd, next, SEEK_SET);
                lwrite("Landed on byte %jd.\n", final);
                fprintf(stderr, "Landed on byte %jd.\n", final);
             }
@@ -564,7 +569,7 @@ void usage(const char* cmd)
 {
    printf("usage: %s [options] ...\n", cmd);
    printf("--help            -h       This message\n");
-   printf("--write-mode s    -w  n    Valid values:\n\
+   printf("--write-mode n    -w  n    Valid values:\n\
                               0: Synchronous (default)\n\
                               1: Asynchronous\n");
    printf("--nuke-level n    -nl n    Varying levels of destruction:\n\
@@ -802,7 +807,8 @@ int main(int argc, char* argv[])
    /* Fill the devices array */
    buildMediaList(devices);
 
-   /* Allocate the correct amount of memory based on the total number of devices */
+   /* Allocate the correct amount of memory based on the total 
+    * number of devices */
    devices = (media_t*)realloc(devices, device_stats.total * sizeof(media_t));
    if(devices == NULL)
    {
