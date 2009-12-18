@@ -73,6 +73,7 @@ const char sPattern[] = {
       "ad",  //ATAPI
       "da",  //SCSI
       "sa",  //SCSI Tape device
+      "amrd" //AMI MegaRAID Disk (Dell PERC)
       "adv", //AdvanSys Narrow
       "adw", //AdvanSys Wide
       "amd", //AMD 53C974 (Tekram DC390(T))
@@ -84,8 +85,6 @@ const char sPattern[] = {
       "aic", //Adaptec 152x/AIC-6360/AIC-6260
       "isp", //QLogic
       "dpt", //DPT RAID
-      "amr", //AMI MegaRAID
-      "amrd" //AMI MegaRAID Disk
       "mlx", //Mylex DAC960 RAID
       "wt",  //Wangtek and Archive QIC-02/QIC-36
    };
@@ -388,6 +387,8 @@ int nuke(media_t device)
             lwrite("%s: %s, while writing chunk %jd. seek position %jd\n", device.nameshort, strerror(errno), block, current);
             fprintf(stderr, "%s: %s, while writing chunk %jd. seek position %jd\n", device.nameshort, strerror(errno), block, current);
 
+            /* Flush stderr to the screen */
+            fflush(stderr);
             /* Reset the error code so it doesn't fill up the screen */
             errno = 0; 
          }
@@ -452,13 +453,14 @@ void buildMediaList(media_t devices[])
          /* This is not the only way to do this.  Especially because it is NOT
           * dynamic to the mediaList at all... */
          if(strstr(device.name, "ad") != NULL || 
-               strstr(device.name, "hd") != NULL)
+            strstr(device.name, "hd") != NULL)
          {
             device_stats.ide++;
          }
 
          else if(strstr(device.name, "da") != NULL || 
-               strstr(device.name, "sd") != NULL)
+               strstr(device.name, "sd") != NULL ||
+               strstr(device.name, "amrd") != NULL)
          {
             device_stats.scsi++;
          }
