@@ -23,6 +23,9 @@
 #include <string.h>
 #include <stdarg.h>
 #include <time.h>
+#ifndef CLK_TCK
+	#define CLK_TCK CLOCKS_PER_SEC
+#endif
 #include <ctype.h>
 
 FILE* loutfile;
